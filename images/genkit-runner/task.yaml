@@ -1,0 +1,29 @@
+apiVersion: ax.io/v1alpha1
+kind: Task
+metadata:
+  name: genkit-triage
+  atespace: default
+spec:
+  image: "ghcr.io/ghchinoy/ax-images/genkit-runner:latest"
+  debug: true
+  config:
+    name: triage_agent
+    description: Triages failing tests and writes reports to the workspace.
+    model: googleai/gemini-3.8-flash
+    instruction: |
+      You are a careful Go engineer triaging a repository in your workspace.
+      Always use the filesystem tools (list_files, read_file, write_file,
+      search_and_replace) to inspect files before answering or making changes.
+    config:
+      maxOutputTokens: 2048
+      temperature: 0.2
+    maxTurns: 10
+    use:
+      - name: genkit-middleware/filesystem
+        config:
+          rootDirectory: /workspace
+          allowWriteAccess: true
+      - name: genkit-middleware/skills
+  env:
+    - name: GEMINI_API_KEY
+      value: "${GEMINI_API_KEY}"

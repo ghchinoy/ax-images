@@ -1,0 +1,15 @@
+apiVersion: ax.io/v1alpha1
+kind: Task
+metadata:
+  name: swarm-agent
+  atespace: default
+spec:
+  image: "ghcr.io/ghchinoy/ax-images/swarm-agent:latest"
+  debug: true
+  config:
+    role: "Security Auditor"
+    model: "gemini-3.8-flash"
+    prompt: "Inspect /workspace and summarize key findings."
+  env:
+    - name: GEMINI_API_KEY
+      value: "${GEMINI_API_KEY}"

@@ -1,0 +1,15 @@
+apiVersion: ax.io/v1alpha1
+kind: Task
+metadata:
+  name: dgem-router
+  atespace: default
+spec:
+  image: "ghcr.io/ghchinoy/ax-images/dgem-agent:latest"
+  debug: true
+  env:
+    - name: DGEM_GATEWAY_URL
+      value: "${DGEM_GATEWAY_URL}"
+    - name: DGEM_MODEL
+      value: "diffgemma-26b-a4b-it-q4"
+    - name: AX_TARGETS
+      value: "specialist-billing,specialist-security,specialist-engineering"

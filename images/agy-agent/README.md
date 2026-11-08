@@ -1,11 +1,46 @@
-# Antigravity + `dgem` Safety Gate (`agy-agent`)
+# Antigravity Coding Agent + Optional `dgem` Safety Gate (`agy-agent`)
 
-Task image for [Track 2d (`agy`)](https://github.com/ghchinoy/ax-experiments/tree/main/agy): bundles `/opt/dgem/agy-safety-gate/dgem_gate.py`, `sdk_demo.py`, and `/opt/dgem/templates/tool_safety_gate.json.tmpl` with the 4-stage cascading `PreToolUse` safety gate (`Stage 0 static -> Stage 1 dgem 2-slot -> Stage 2 Gemini -> Stage 3 file HITL over ax ssh`).
+Dual-mode Google Antigravity (`antigravity-preview-09-2026` Gemini Interactions API + `agy` CLI/SDK) task image for **[AX Experiments — Track 2d: Antigravity Coding Agents on AX](https://github.com/ghchinoy/ax-experiments/tree/main/agy)** (see [`agy/GUIDE.md`](https://github.com/ghchinoy/ax-experiments/blob/main/agy/GUIDE.md)).
+
+Extends the upstream **[`rakyll/ax-images/antigravity`](https://github.com/rakyll/ax-images/tree/main/images/antigravity)** runner with **[`GoogleCloudPlatform/dgem`](https://github.com/GoogleCloudPlatform/dgem)** [`examples/agy-safety-gate`](https://github.com/GoogleCloudPlatform/dgem/tree/main/examples/agy-safety-gate) (`/opt/dgem/agy-safety-gate/dgem_gate.py`, `sdk_demo.py`, and [`templates/tool_safety_gate.json.tmpl`](https://github.com/GoogleCloudPlatform/dgem/blob/main/templates/tool_safety_gate.json.tmpl)).
+
+## Two Operating Modes in One Image
+
+### Mode A: Non-`dgem` Baseline (Default — Compatible with `ghcr.io/rakyll/ax-images/antigravity`)
+When `DGEM_GATEWAY_URL` and `DGEM_GATE_STATIC` are unset (and `spec.config.safetyGate` is omitted or `false`), `agy-agent` runs the standard Antigravity Gemini Interactions loop (`antigravity-preview-09-2026`) executing `run_shell`, `read_file`, `write_file`, and `edit_file` directly inside `/workspace`:
 
 ```yaml
+apiVersion: ax.io/v1alpha1
+kind: Task
+metadata:
+  name: agy-baseline
+  atespace: default
 spec:
   image: "ghcr.io/ghchinoy/ax-images/agy-agent@sha256:904b3b71f6bf7559d8562ea5875a0871e643e0a0ae5b844b634d55b518bbdfb1"
   debug: true
+  config:
+    prompt: "Run the test suite, find the failing test, and fix it."
+    maxTurns: 20
+  env:
+    - name: GEMINI_API_KEY
+      value: "${GEMINI_API_KEY}"
+```
+
+### Mode B: 4-Stage Cascading `dgem` `PreToolUse` Safety Gate + `ax ssh` HITL
+When `spec.config.safetyGate: true` or `DGEM_GATEWAY_URL` / `DGEM_GATE_STATIC=1` is set, every local workspace tool call (`run_shell`, `write_file`, `edit_file`, `read_file`) is intercepted before execution by the 4-stage cascading safety gate (`Stage 0 static regex -> Stage 1 dgem 2-slot DiffusionGemma -> Stage 2 Gemini System-2 tie-breaker -> Stage 3 file-based HITL over ax ssh`):
+
+```yaml
+apiVersion: ax.io/v1alpha1
+kind: Task
+metadata:
+  name: agy-dgem-gate
+  atespace: default
+spec:
+  image: "ghcr.io/ghchinoy/ax-images/agy-agent:latest"
+  debug: true
+  config:
+    prompt: "Audit and remediate the payment service."
+    safetyGate: true
   env:
     - name: GEMINI_API_KEY
       value: "${GEMINI_API_KEY}"
@@ -13,6 +48,8 @@ spec:
       value: "http://192.168.64.1:8095"
     - name: DGEM_GATE_STATIC
       value: "1"
+    - name: DGEM_GATE_CASCADE
+      value: "gemini"
     - name: DGEM_GATE_AUDIT_LOG
       value: "/workspace/.agy/audit.jsonl"
     - name: DGEM_GATE_HITL_DIR

@@ -1,21 +1,17 @@
 apiVersion: ax.io/v1alpha1
 kind: Task
 metadata:
-  name: agy-dgem-gate
+  name: agy-agent
   atespace: default
 spec:
   image: "ghcr.io/ghchinoy/ax-images/agy-agent@sha256:904b3b71f6bf7559d8562ea5875a0871e643e0a0ae5b844b634d55b518bbdfb1"
   debug: true
+  config:
+    prompt: "Inspect /workspace, run tests, and fix any issues."
+    maxTurns: 25
+    # Set safetyGate: true (or provide DGEM_GATEWAY_URL / DGEM_GATE_STATIC=1)
+    # to enable the 4-stage cascading DiffusionGemma (dgem) PreToolUse safety gate.
+    safetyGate: false
   env:
     - name: GEMINI_API_KEY
       value: "${GEMINI_API_KEY}"
-    - name: DGEM_GATEWAY_URL
-      value: "${DGEM_GATEWAY_URL}"
-    - name: DGEM_GATE_STATIC
-      value: "1"
-    - name: DGEM_GATE_CASCADE
-      value: "gemini"
-    - name: DGEM_GATE_AUDIT_LOG
-      value: "/workspace/.agy/audit.jsonl"
-    - name: DGEM_GATE_HITL_DIR
-      value: "/workspace/.agy/hitl"

@@ -29,8 +29,10 @@ IMAGE_REPO ?= ghcr.io/ghchinoy/ax-images
 CONTAINER_CLI ?= $(shell command -v podman 2>/dev/null || command -v docker 2>/dev/null)
 BUILD_ARGS := $(if $(BASE_IMAGE),--build-arg BASE_IMAGE=$(BASE_IMAGE),)
 ARCH ?= amd64
+DGEM_REPO ?= $(HOME)/projects/dgem
+AX_EXPERIMENTS_REPO ?= $(HOME)/projects/ax-experiments
 
-.PHONY: binaries images pin list-images test apple-local check-image-repo $(addprefix build-,$(IMAGES)) $(addprefix push-,$(IMAGES))
+.PHONY: binaries images pin list-images test apple-local sync check-image-repo $(addprefix build-,$(IMAGES)) $(addprefix push-,$(IMAGES))
 
 binaries:
 	@mkdir -p bin/linux_$(ARCH)
@@ -77,6 +79,18 @@ pin: check-image-repo
 
 list-images:
 	@echo $(IMAGES)
+
+sync:
+	@echo "==> Syncing templates and safety-gate scripts from $(DGEM_REPO) and $(AX_EXPERIMENTS_REPO)..."
+	@test -d "$(DGEM_REPO)" && { \
+		cp "$(DGEM_REPO)"/templates/*.json.tmpl images/dgem-agent/templates/; \
+		cp "$(DGEM_REPO)"/templates/calibration/*.json.tmpl images/dgem-agent/templates/calibration/; \
+		cp "$(DGEM_REPO)"/examples/agy-safety-gate/dgem_gate.py "$(DGEM_REPO)"/examples/agy-safety-gate/sdk_demo.py images/agy-agent/agy-safety-gate/; \
+	} || true
+	@test -d "$(AX_EXPERIMENTS_REPO)" && { \
+		cp "$(AX_EXPERIMENTS_REPO)/swarm/agent-image/agent.py" images/swarm-agent/agent.py; \
+		cp "$(AX_EXPERIMENTS_REPO)/dgem/templates/specialist_router.json.tmpl" images/dgem-agent/templates/; \
+	} || true
 
 test:
 	go vet ./...

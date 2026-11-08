@@ -6,7 +6,7 @@ Reads `Task.spec.config` from the in-sandbox loopback metadata endpoint (`127.0.
 
 ```yaml
 spec:
-  image: "ghcr.io/ghchinoy/ax-images/swarm-agent:latest"
+  image: "ghcr.io/ghchinoy/ax-images/swarm-agent@sha256:42121723b00ef2dc90d62dcae82c913c10d31d8af3d9a3a7e63bc23f7d4e61b5"
   debug: true
   config:
     role: "Code Reviewer"

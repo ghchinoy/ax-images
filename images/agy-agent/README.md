@@ -4,7 +4,7 @@ Task image for [Track 2d (`agy`)](https://github.com/ghchinoy/ax-experiments/tre
 
 ```yaml
 spec:
-  image: "ghcr.io/ghchinoy/ax-images/agy-agent:latest"
+  image: "ghcr.io/ghchinoy/ax-images/agy-agent@sha256:904b3b71f6bf7559d8562ea5875a0871e643e0a0ae5b844b634d55b518bbdfb1"
   debug: true
   env:
     - name: GEMINI_API_KEY

@@ -4,7 +4,7 @@ Task image for [Track 2b (`genkit`)](https://github.com/ghchinoy/ax-experiments/
 
 ```yaml
 spec:
-  image: "ghcr.io/ghchinoy/ax-images/genkit-runner:latest"
+  image: "ghcr.io/ghchinoy/ax-images/genkit-runner@sha256:591af6440a2b1e2a2959843eb4ec60c956c80f762b8815b10c5c390df99cc57f"
   debug: true
   config:
     name: triage_agent

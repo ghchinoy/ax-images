@@ -106,7 +106,7 @@ jobs:
             sleep 5
           done
 
-      - name: Create release
+      - name: Create or update release
         env:
           GH_TOKEN: ${{ github.token }}
           TAG: ${{ github.ref_name }}
@@ -115,4 +115,8 @@ jobs:
           for img in $(make -s list-images); do
             cp "images/$img/task.yaml" "bin/release/$img.yaml"
           done
-          gh release create "$TAG" bin/release/*.yaml --verify-tag --generate-notes
+          if gh release view "$TAG" >/dev/null 2>&1; then
+            gh release upload "$TAG" bin/release/*.yaml --clobber
+          else
+            gh release create "$TAG" bin/release/*.yaml --verify-tag --generate-notes
+          fi

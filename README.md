@@ -1,6 +1,7 @@
 # AX Images (`ghcr.io/ghchinoy/ax-images`)
 
-[![Release](https://img.shields.io/github/v/release/ghchinoy/ax-images)](https://github.com/ghchinoy/ax-images/releases)
+[![Release](https://github.com/ghchinoy/ax-images/actions/workflows/release.yml/badge.svg)](https://github.com/ghchinoy/ax-images/actions/workflows/release.yml)
+[![Latest Tag](https://img.shields.io/github/v/release/ghchinoy/ax-images)](https://github.com/ghchinoy/ax-images/releases)
 [![License](https://img.shields.io/badge/license-Apache%202.0-blue)](LICENSE)
 
 Multi-arch (`linux/amd64` + `linux/arm64`), digest-pinned container images for running **[Google Genkit Go](https://genkit.dev/docs/go/)**, **[DiffusionGemma (`dgem`)](https://github.com/GoogleCloudPlatform/dgem)** System-1 decision routers, **[Google Antigravity (`agy`)](https://github.com/rakyll/ax-images/tree/main/images/antigravity)** coding agents (in both baseline and 4-stage `dgem` safety-gated modes), and multi-agent Gemini swarms on **[AX (Agent Executor)](https://github.com/google/ax)**, **[AX Experiments](https://github.com/ghchinoy/ax-experiments)**, and **[AX Central](https://github.com/ghchinoy/ax-central)**.
@@ -222,7 +223,7 @@ make pin IMAGE_REPO=ghcr.io/ghchinoy/ax-images
 
 ### Cut a Tagged Multi-Arch Release
 
-Tagging `v*` triggers the release workflow ([`hack/release.yml`](hack/release.yml) / `.github/workflows/release.yml`) to build `linux/amd64` + `linux/arm64` manifests via `docker buildx`, push to `ghcr.io/ghchinoy/ax-images/<name>`, pin `@sha256:` digests on `main`, and attach the pinned `*.yaml` manifests to the GitHub Release:
+Tagging `v*` triggers the release workflow ([`.github/workflows/release.yml`](.github/workflows/release.yml)) to build `linux/amd64` + `linux/arm64` manifests via `docker buildx`, push to `ghcr.io/ghchinoy/ax-images/<name>`, pin `@sha256:` digests on `main`, and attach the pinned `*.yaml` manifests to the GitHub Release:
 
 ```bash
 git tag -a v0.1.1 -m "ax-images v0.1.1"

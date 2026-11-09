@@ -4,7 +4,7 @@ metadata:
   name: dgem-router
   atespace: default
 spec:
-  image: "ghcr.io/ghchinoy/ax-images/dgem-agent@sha256:a077fb0079b5513aa4f2df37bc41834e7023655281127cae3011f99285f0a586"
+  image: "ghcr.io/ghchinoy/ax-images/dgem-agent@sha256:eda62cfd65299d0b625a674e79c550b956a90741205ece575b5ff52d81a3e021"
   debug: true
   env:
     - name: DGEM_GATEWAY_URL

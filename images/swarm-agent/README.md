@@ -13,7 +13,7 @@ metadata:
   name: swarm-agent
   atespace: default
 spec:
-  image: "ghcr.io/ghchinoy/ax-images/swarm-agent@sha256:42121723b00ef2dc90d62dcae82c913c10d31d8af3d9a3a7e63bc23f7d4e61b5"
+  image: "ghcr.io/ghchinoy/ax-images/swarm-agent@sha256:96f02f50344b58c0f793b3180bec7b6fdbc9055545ad58a42a1405e29f7486a8"
   debug: true
   config:
     role: "Security Auditor"

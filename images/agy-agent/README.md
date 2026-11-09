@@ -16,7 +16,7 @@ metadata:
   name: agy-baseline
   atespace: default
 spec:
-  image: "ghcr.io/ghchinoy/ax-images/agy-agent@sha256:904b3b71f6bf7559d8562ea5875a0871e643e0a0ae5b844b634d55b518bbdfb1"
+  image: "ghcr.io/ghchinoy/ax-images/agy-agent@sha256:f560d9a64b2863c181efbe681bf3f8472ddb562cddf48487146b591e9e7ffdc7"
   debug: true
   config:
     prompt: "Run the test suite, find the failing test, and fix it."
@@ -36,7 +36,7 @@ metadata:
   name: agy-dgem-gate
   atespace: default
 spec:
-  image: "ghcr.io/ghchinoy/ax-images/agy-agent:latest"
+  image: "ghcr.io/ghchinoy/ax-images/agy-agent@sha256:f560d9a64b2863c181efbe681bf3f8472ddb562cddf48487146b591e9e7ffdc7"
   debug: true
   config:
     prompt: "Audit and remediate the payment service."

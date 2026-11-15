@@ -89,6 +89,26 @@ func TestLoad(t *testing.T) {
 	if m, err := cfg.Object("params"); m["x"] != 1.0 || err != nil {
 		t.Errorf("Object(params) = %v, %v", m, err)
 	}
+	if p, err := cfg.Prompt(); p != "Fix it." || err != nil {
+		t.Errorf("Prompt() = %q, %v", p, err)
+	}
+}
+
+func TestLoad_GoalPrecedence(t *testing.T) {
+	t.Setenv("AX_TASK_YAML", `
+metadata: {name: goal-task}
+spec:
+  goal: {spec: "Goal takes precedence."}
+  config: {prompt: "Fallback prompt."}
+`)
+	t.Setenv("AX_WORKSPACE_YAML", "")
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if p, err := cfg.Prompt(); p != "Goal takes precedence." || err != nil {
+		t.Errorf("Prompt() = %q, %v, want Goal takes precedence.", p, err)
+	}
 }
 
 func TestLoad_NoWorkspace(t *testing.T) {

@@ -16,11 +16,16 @@ package main
 
 import (
 	"context"
+	"crypto/tls"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"iter"
 	"log/slog"
+	"net"
 	"net/http"
+	"net/http/httputil"
+	"net/url"
 	"os"
 	"path/filepath"
 	"strings"
@@ -44,8 +49,10 @@ import (
 	"github.com/firebase/genkit/go/plugins/mcp"
 	"github.com/firebase/genkit/go/plugins/middleware"
 	"github.com/google/ax/pkg/apis/v1alpha1"
+	"github.com/google/ax/runner"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
+	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
 )
 
@@ -62,6 +69,12 @@ func (d *dynamicHandler) Set(h http.Handler) {
 	d.handler = h
 }
 
+func (d *dynamicHandler) Ready() bool {
+	d.mu.RLock()
+	defer d.mu.RUnlock()
+	return d.handler != nil
+}
+
 func (d *dynamicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	d.mu.RLock()
 	h := d.handler
@@ -73,6 +86,157 @@ func (d *dynamicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.ServeHTTP(w, r)
 }
 
+// runGenkitRunner executes the AX task runner alongside the in-process Genkit
+// HTTP + A2A gRPC/JSON-RPC server on cfg.Port when spec.commands is empty and
+// spec.config or spec.goal.spec is set. When spec.commands is populated, it
+// delegates directly to runner.Run.
+func runGenkitRunner(ctx context.Context, cfg runner.Config, extraPlugins ...api.Plugin) error {
+	spec := cfg.Task.GetSpec()
+	hasAgentConfig := spec != nil && len(spec.GetCommands()) == 0 &&
+		(len(spec.GetConfig().GetFields()) > 0 || strings.TrimSpace(spec.GetGoal().GetSpec()) != "")
+	if !hasAgentConfig {
+		return runner.Run(ctx, cfg)
+	}
+
+	wsPath := spec.WorkspacePath()
+	if _, err := parseTaskAgentSpec(cfg.Task, cfg.Workspace, wsPath); err != nil {
+		return err
+	}
+
+	publicPort := cfg.Port
+	if publicPort <= 0 {
+		publicPort = runner.DefaultPort
+	}
+	internalPort, err := pickFreeLoopbackPort()
+	if err != nil {
+		return fmt.Errorf("allocating internal runner port: %w", err)
+	}
+
+	innerCfg := cfg
+	innerCfg.Port = internalPort
+
+	runnerURL, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", internalPort))
+	http1Proxy := httputil.NewSingleHostReverseProxy(runnerURL)
+	h2cProxy := httputil.NewSingleHostReverseProxy(runnerURL)
+	h2cProxy.Transport = &http2.Transport{
+		AllowHTTP: true,
+		DialTLSContext: func(ctx context.Context, network, addr string, _ *tls.Config) (net.Conn, error) {
+			return (&net.Dialer{}).DialContext(ctx, network, addr)
+		},
+	}
+
+	dyn := &dynamicHandler{}
+	mux := http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.ProtoMajor == 2 && strings.HasPrefix(r.Header.Get("Content-Type"), "application/grpc") {
+			if strings.HasPrefix(r.URL.Path, "/lf.a2a.v1.A2AService/") || strings.HasPrefix(r.URL.Path, "/a2a.v1.A2AService/") {
+				dyn.ServeHTTP(w, r)
+				return
+			}
+			h2cProxy.ServeHTTP(w, r)
+			return
+		}
+		switch r.URL.Path {
+		case "/healthz":
+			http1Proxy.ServeHTTP(w, r)
+		case "/readyz":
+			if !dyn.Ready() {
+				w.Header().Set("Content-Type", "application/json")
+				w.WriteHeader(http.StatusServiceUnavailable)
+				_, _ = w.Write([]byte(`{"status":"initializing_agent"}`))
+				return
+			}
+			http1Proxy.ServeHTTP(w, r)
+		default:
+			dyn.ServeHTTP(w, r)
+		}
+	})
+
+	pubSrv := &http.Server{
+		Addr:    fmt.Sprintf(":%d", publicPort),
+		Handler: mux,
+	}
+	pubSrv.Protocols = new(http.Protocols)
+	pubSrv.Protocols.SetHTTP1(true)
+	pubSrv.Protocols.SetUnencryptedHTTP2(true)
+
+	ln, err := net.Listen("tcp", pubSrv.Addr)
+	if err != nil {
+		return fmt.Errorf("listening on %s: %w", pubSrv.Addr, err)
+	}
+	go func() {
+		if err := pubSrv.Serve(ln); err != nil && !errors.Is(err, http.ErrServerClosed) {
+			slog.Error("genkit public server error", "error", err)
+		}
+	}()
+
+	runCtx, cancelRun := context.WithCancel(ctx)
+	defer cancelRun()
+
+	var cleanup func()
+	defer func() {
+		_ = pubSrv.Shutdown(context.Background())
+		if cleanup != nil {
+			cleanup()
+		}
+	}()
+
+	runnerErrCh := make(chan error, 1)
+	go func() {
+		runnerErrCh <- runner.Run(runCtx, innerCfg)
+	}()
+
+	// Wait for runner.Run to finish SetupWorkspace (signaled by internal /readyz 200),
+	// then initialize the Genkit agent handler before flipping public /readyz to 200.
+	initErrCh := make(chan error, 1)
+	go func() {
+		readyURL := fmt.Sprintf("http://127.0.0.1:%d/readyz", internalPort)
+		client := &http.Client{Timeout: time.Second}
+		for {
+			if runCtx.Err() != nil {
+				initErrCh <- nil
+				return
+			}
+			resp, err := client.Get(readyURL)
+			if err == nil {
+				_ = resp.Body.Close()
+				if resp.StatusCode == http.StatusOK {
+					break
+				}
+			}
+			time.Sleep(25 * time.Millisecond)
+		}
+		h, c, err := buildAgentHandler(runCtx, cfg.Task, cfg.Workspace, wsPath, extraPlugins...)
+		if err != nil {
+			initErrCh <- err
+			return
+		}
+		cleanup = c
+		dyn.Set(h)
+		initErrCh <- nil
+	}()
+
+	select {
+	case err := <-runnerErrCh:
+		return err
+	case err := <-initErrCh:
+		if err != nil {
+			cancelRun()
+			<-runnerErrCh
+			return err
+		}
+	}
+	return <-runnerErrCh
+}
+
+func pickFreeLoopbackPort() (int, error) {
+	ln, err := net.Listen("tcp", "127.0.0.1:0")
+	if err != nil {
+		return 0, err
+	}
+	defer ln.Close()
+	return ln.Addr().(*net.TCPAddr).Port, nil
+}
+
 // buildAgentHandler initializes Genkit, connects any Workspace MCP servers,
 // materializes the Dotprompt file from spec, defines the store-backed Genkit
 // agent under wsPath/.genkit/snapshots, and mounts Genkit's native HTTP
@@ -80,7 +244,7 @@ func (d *dynamicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 // /.well-known/agent-card.json), and the A2A gRPC server
 // (lf.a2a.v1.A2AService and a2a.v1.A2AService).
 func buildAgentHandler(ctx context.Context, task *v1alpha1.Task, ws *v1alpha1.Workspace, wsPath string, extraPlugins ...api.Plugin) (http.Handler, func(), error) {
-	spec, err := parseAgentSpec(task.GetSpec().GetConfig(), ws, wsPath)
+	spec, err := parseTaskAgentSpec(task, ws, wsPath)
 	if err != nil {
 		return nil, nil, err
 	}
@@ -218,6 +382,33 @@ func buildAgentHandler(ctx context.Context, task *v1alpha1.Task, ws *v1alpha1.Wo
 		"storeDir", storeDir,
 		"mcpTools", len(mcpToolNames),
 	)
+
+	// If Task.spec.goal.spec (or spec.config.prompt) sets a boot goal and no
+	// snapshot exists yet for this session, run Turn 1 asynchronously in the
+	// persistent session store so it survives suspend/resume for Turn 2+.
+	if spec.BootPrompt != "" {
+		sessionID := firstNonEmpty(strings.TrimSpace(task.GetSpec().GetSessionId()), "default")
+		if snap, err := ag.GetLatestSnapshot(ctx, sessionID, aix.WithMetadataOnly()); err != nil || snap == nil {
+			go func() {
+				slog.Info("running initial boot goal turn", "agent", spec.Name, "session_id", sessionID)
+				out, err := ag.RunText(ctx, spec.BootPrompt, aix.WithSessionID[any](sessionID))
+				if err != nil {
+					slog.Error("initial boot goal turn failed", "agent", spec.Name, "session_id", sessionID, "error", err)
+					return
+				}
+				var reply string
+				if out.Message != nil {
+					reply = out.Message.Text()
+				}
+				if outPath := filepath.Join(wsPath, ".ax", "output"); reply != "" {
+					_ = os.MkdirAll(filepath.Dir(outPath), 0o755)
+					_ = os.WriteFile(outPath, []byte(reply), 0o644)
+				}
+				slog.Info("initial boot goal turn completed", "agent", spec.Name, "session_id", sessionID, "finish_reason", string(out.FinishReason))
+			}()
+		}
+	}
+
 	return combined, mcpCleanup, nil
 }
 

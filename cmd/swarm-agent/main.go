@@ -14,13 +14,15 @@
 
 // Command swarm-agent acts as both the AX task runner (when invoked as
 // ax-task-runner) and the multi-agent Gemini worker entrypoint (which delegates
-// to /usr/local/bin/agent.py when spec.config.prompt or AGENT_PROMPT is set).
+// to /usr/local/bin/agent.py when spec.goal.spec, spec.config.prompt, or
+// AGENT_PROMPT is set).
 package main
 
 import (
 	"os"
 	"os/exec"
 
+	"github.com/ghchinoy/ax-images/internal/agent"
 	"github.com/ghchinoy/ax-images/internal/taskrunner"
 )
 
@@ -29,9 +31,15 @@ func main() {
 		taskrunner.Main()
 		return
 	}
-	// If neither AGENT_PROMPT nor AX_RUN_ON_BOOT is set, exit 0 so interactive
+	bootPrompt := os.Getenv("AGENT_PROMPT")
+	if bootPrompt == "" {
+		if cfg, err := agent.Load(); err == nil {
+			bootPrompt, _ = cfg.OptionalPrompt()
+		}
+	}
+	// If no boot goal/prompt or AX_RUN_ON_BOOT is set, exit 0 so interactive
 	// `ax ssh` swarm recipes (01..08) can invoke /usr/local/bin/agent.py on demand.
-	if os.Getenv("AGENT_PROMPT") == "" && os.Getenv("AX_RUN_ON_BOOT") == "" {
+	if bootPrompt == "" && os.Getenv("AX_RUN_ON_BOOT") == "" {
 		return
 	}
 	cmd := exec.Command("python3", append([]string{"/usr/local/bin/agent.py"}, os.Args[1:]...)...)

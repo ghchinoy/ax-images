@@ -72,7 +72,7 @@ pin: check-image-repo
 		test -f bin/$$img.digest || continue; \
 		ref="$(IMAGE_REPO)/$$img@$$(cat bin/$$img.digest)"; \
 		for f in images/$$img/task.yaml images/$$img/README.md; do \
-			sed -i.bak -E "s|^(  image: ).*|\1\"$$ref\"|" $$f && rm $$f.bak; \
+			sed -i.bak -E "s|^([[:space:]]+image: ).*|\1\"$$ref\"|" $$f && rm $$f.bak; \
 		done; \
 		echo "$$img -> $$ref"; \
 	done

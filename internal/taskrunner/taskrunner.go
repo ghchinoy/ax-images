@@ -57,7 +57,7 @@ func Main() {
 	flag.IntVar(&cfg.MetadataPort, "metadata-port", runner.DefaultMetadataPort, "Loopback-only port for the metadata endpoints")
 	flag.StringVar(&taskFile, "task-file", "", "Read the Task YAML from this file instead of AX_TASK_YAML")
 	flag.StringVar(&wsFile, "workspace-file", "", "Read the Workspace YAML from this file instead of AX_WORKSPACE_YAML")
-	flag.StringVar(&agent, "agent", defaultAgent, "Command to run when the task leaves spec.command empty")
+	flag.StringVar(&agent, "agent", defaultAgent, "Command to run when the task leaves spec.commands empty")
 	flag.Parse(os.Args[1:])
 
 	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
@@ -89,14 +89,14 @@ func Main() {
 }
 
 func withAgentCommand(task *v1alpha1.Task, agent string) *v1alpha1.Task {
-	if len(task.GetSpec().GetCommand()) > 0 || agent == "" {
+	if len(task.GetSpec().GetCommands()) > 0 || agent == "" {
 		return task
 	}
 	task = proto.Clone(task).(*v1alpha1.Task)
 	if task.Spec == nil {
 		task.Spec = &v1alpha1.TaskSpec{}
 	}
-	task.Spec.Command = []string{agent}
+	task.Spec.Commands = []string{agent}
 	return task
 }
 

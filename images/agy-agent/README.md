@@ -2,7 +2,7 @@
 
 Dual-mode Google Antigravity (`antigravity-preview-09-2026` Gemini Interactions API + `agy` CLI/SDK) task image for **[AX Experiments — Track 2d: Antigravity Coding Agents on AX](https://github.com/ghchinoy/ax-experiments/tree/main/agy)** (see [`agy/GUIDE.md`](https://github.com/ghchinoy/ax-experiments/blob/main/agy/GUIDE.md)).
 
-Extends the upstream **[`rakyll/ax-images/antigravity`](https://github.com/rakyll/ax-images/tree/main/images/antigravity)** runner with **[`GoogleCloudPlatform/dgem`](https://github.com/GoogleCloudPlatform/dgem)** [`examples/agy-safety-gate`](https://github.com/GoogleCloudPlatform/dgem/tree/main/examples/agy-safety-gate) (`/opt/dgem/agy-safety-gate/dgem_gate.py`, `sdk_demo.py`, and [`templates/tool_safety_gate.json.tmpl`](https://github.com/GoogleCloudPlatform/dgem/blob/main/templates/tool_safety_gate.json.tmpl)).
+Extends the upstream **[`rakyll/ax-images/antigravity`](https://github.com/rakyll/ax-images/tree/main/images/antigravity)** runner with `spec.goal.spec` support and **[`GoogleCloudPlatform/dgem`](https://github.com/GoogleCloudPlatform/dgem)** [`examples/agy-safety-gate`](https://github.com/GoogleCloudPlatform/dgem/tree/main/examples/agy-safety-gate) (`/opt/dgem/agy-safety-gate/dgem_gate.py`, `sdk_demo.py`, and [`templates/tool_safety_gate.json.tmpl`](https://github.com/GoogleCloudPlatform/dgem/blob/main/templates/tool_safety_gate.json.tmpl)).
 
 ## Two Operating Modes in One Image
 
@@ -16,10 +16,16 @@ metadata:
   name: agy-baseline
   atespace: default
 spec:
-  image: "ghcr.io/ghchinoy/ax-images/agy-agent@sha256:f560d9a64b2863c181efbe681bf3f8472ddb562cddf48487146b591e9e7ffdc7"
+  profile:
+    image: "ghcr.io/ghchinoy/ax-images/agy-agent:latest"
+    resources:
+      limits:
+        cpu: "2"
+        memory: "4Gi"
   debug: true
+  goal:
+    spec: "Run the test suite, find the failing test, and fix it."
   config:
-    prompt: "Run the test suite, find the failing test, and fix it."
     maxTurns: 20
   env:
     - name: GEMINI_API_KEY
@@ -36,10 +42,16 @@ metadata:
   name: agy-dgem-gate
   atespace: default
 spec:
-  image: "ghcr.io/ghchinoy/ax-images/agy-agent@sha256:f560d9a64b2863c181efbe681bf3f8472ddb562cddf48487146b591e9e7ffdc7"
+  profile:
+    image: "ghcr.io/ghchinoy/ax-images/agy-agent:latest"
+    resources:
+      limits:
+        cpu: "2"
+        memory: "4Gi"
   debug: true
+  goal:
+    spec: "Audit and remediate the payment service."
   config:
-    prompt: "Audit and remediate the payment service."
     safetyGate: true
   env:
     - name: GEMINI_API_KEY

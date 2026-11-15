@@ -56,4 +56,18 @@ func TestParseOptions_DualMode(t *testing.T) {
 			t.Errorf("opts.safetyGate = false, want true when spec.config.safetyGate is set")
 		}
 	})
+
+	t.Run("goal_spec_precedence", func(t *testing.T) {
+		cfg := &agent.Config{
+			Goal:   "Add subtract(a, b) and unit test",
+			Values: map[string]any{},
+		}
+		opts, err := parseOptions(cfg)
+		if err != nil {
+			t.Fatalf("parseOptions(goal) failed: %v", err)
+		}
+		if opts.prompt != "Add subtract(a, b) and unit test" {
+			t.Errorf("opts.prompt = %q", opts.prompt)
+		}
+	})
 }

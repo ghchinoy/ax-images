@@ -4,12 +4,18 @@ metadata:
   name: swarm-agent
   atespace: default
 spec:
-  image: "ghcr.io/ghchinoy/ax-images/swarm-agent@sha256:96f02f50344b58c0f793b3180bec7b6fdbc9055545ad58a42a1405e29f7486a8"
+  profile:
+    image: "ghcr.io/ghchinoy/ax-images/swarm-agent:latest"
+    resources:
+      limits:
+        cpu: "1"
+        memory: "2Gi"
   debug: true
+  goal:
+    spec: "Inspect /workspace and summarize key findings."
   config:
     role: "Security Auditor"
     model: "gemini-3.8-flash"
-    prompt: "Inspect /workspace and summarize key findings."
   env:
     - name: GEMINI_API_KEY
       value: "${GEMINI_API_KEY}"

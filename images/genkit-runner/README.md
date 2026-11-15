@@ -1,10 +1,10 @@
 # Declarative Genkit Go Runner (`genkit-runner`)
 
-Task image for **[AX Experiments — Track 2b: Declarative Genkit Go Runner](https://github.com/ghchinoy/ax-experiments/tree/main/genkit)** ([`google/ax#538`](https://github.com/google/ax/issues/538), [`genkit/TUTORIAL.md`](https://github.com/ghchinoy/ax-experiments/blob/main/genkit/TUTORIAL.md)): turns a declarative `Task.spec.config` [Dotprompt](https://genkit.dev/docs/go/dotprompt/) manifest and `Workspace` into an A2A gRPC (`lf.a2a.v1.A2AService`), A2A JSON-RPC (`/`, `/.well-known/agent-card.json`), and Genkit HTTP (`/agents/<name>`) agent server on `:80` with durable `/workspace/.genkit/snapshots` across `ax suspend` and `ax resume`.
+Task image for **[AX Experiments — Track 2b: Declarative Genkit Go Runner](https://github.com/ghchinoy/ax-experiments/tree/main/genkit)** ([`google/ax#538`](https://github.com/google/ax/issues/538), [`genkit/TUTORIAL.md`](https://github.com/ghchinoy/ax-experiments/blob/main/genkit/TUTORIAL.md)): turns a declarative `Task.spec.config` [Dotprompt](https://genkit.dev/docs/go/dotprompt/) manifest (or `Task.spec.goal.spec`) and `Workspace` into an A2A gRPC (`lf.a2a.v1.A2AService`), A2A JSON-RPC (`/`, `/.well-known/agent-card.json`), and Genkit HTTP (`/agents/<name>`) agent server on `:80` with durable `/workspace/.genkit/snapshots` across `ax suspend` and `ax resume`.
 
 Can also connect to **[`GoogleCloudPlatform/dgem`](https://github.com/GoogleCloudPlatform/dgem)** Streamable HTTP MCP servers (`http://192.168.64.1:8095/mcp`) declared in `Workspace.spec.mcp.servers` (see [Track 2c Recipe `02-mcp-triage-agent.sh`](https://github.com/ghchinoy/ax-experiments/blob/main/dgem/02-mcp-triage-agent.sh)).
 
-## Task Manifest (`spec.config`)
+## Task Manifest (`spec.profile` + `spec.config`)
 
 ```yaml
 apiVersion: ax.io/v1alpha1
@@ -13,7 +13,12 @@ metadata:
   name: genkit-triage
   atespace: default
 spec:
-  image: "ghcr.io/ghchinoy/ax-images/genkit-runner@sha256:832d08990cecb0c86a017ada973c7d2dfc138366ce43c53f1a795d3c0e9fd73c"
+  profile:
+    image: "ghcr.io/ghchinoy/ax-images/genkit-runner:latest"
+    resources:
+      limits:
+        cpu: "2"
+        memory: "4Gi"
   debug: true
   config:
     name: triage_agent

@@ -4,10 +4,16 @@ metadata:
   name: agy-agent
   atespace: default
 spec:
-  image: "ghcr.io/ghchinoy/ax-images/agy-agent@sha256:f560d9a64b2863c181efbe681bf3f8472ddb562cddf48487146b591e9e7ffdc7"
+  profile:
+    image: "ghcr.io/ghchinoy/ax-images/agy-agent:latest"
+    resources:
+      limits:
+        cpu: "2"
+        memory: "4Gi"
   debug: true
+  goal:
+    spec: "Inspect /workspace, run tests, and fix any issues."
   config:
-    prompt: "Inspect /workspace, run tests, and fix any issues."
     maxTurns: 25
     # Set safetyGate: true (or provide DGEM_GATEWAY_URL / DGEM_GATE_STATIC=1)
     # to enable the 4-stage cascading DiffusionGemma (dgem) PreToolUse safety gate.

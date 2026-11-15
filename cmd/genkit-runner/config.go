@@ -36,21 +36,60 @@ const (
 	// defaultGoogleProvider is prepended to a bare Gemini model ID (such as
 	// "gemini-3.8-flash") when no provider prefix is present.
 	defaultGoogleProvider = "googleai"
+	// defaultGoalModel is used when a Task sets spec.goal.spec without spec.config.model.
+	defaultGoalModel = "googleai/gemini-3.8-flash"
 )
 
 // validAgentName matches a safe Dotprompt / URL path identifier.
 var validAgentName = regexp.MustCompile(`^[a-zA-Z][a-zA-Z0-9_-]*$`)
 
-// agentSpec holds the parsed agent configuration derived from Task.spec.config
-// and the bound Workspace.
+// agentSpec holds the parsed agent configuration derived from Task.spec.config,
+// Task.spec.goal, and the bound Workspace.
 type agentSpec struct {
 	Name        string
 	Description string
 	Model       string
 	PromptFile  string
 	Instruction string
+	BootPrompt  string
 	Frontmatter map[string]any
 	MCPServers  []mcp.MCPServerConfig
+}
+
+// parseTaskAgentSpec extracts the agent definition from a Task and Workspace,
+// supporting both Task.spec.config (Dotprompt frontmatter) and Task.spec.goal.spec.
+func parseTaskAgentSpec(task *v1alpha1.Task, ws *v1alpha1.Workspace, wsPath string) (*agentSpec, error) {
+	goalText := strings.TrimSpace(task.GetSpec().GetGoal().GetSpec())
+	cfg := task.GetSpec().GetConfig()
+	if len(cfg.GetFields()) == 0 && goalText != "" {
+		defaultCfg, err := structpb.NewStruct(map[string]any{
+			"name":        defaultAgentName,
+			"model":       defaultGoalModel,
+			"instruction": "You are a careful software engineer working in " + wsPath + ". Always use the filesystem tools (list_files, read_file, write_file, search_and_replace) to inspect and update files.",
+			"maxTurns":    15,
+			"use": []any{
+				map[string]any{
+					"name": "genkit-middleware/filesystem",
+					"config": map[string]any{
+						"rootDirectory":    wsPath,
+						"allowWriteAccess": true,
+					},
+				},
+			},
+		})
+		if err != nil {
+			return nil, err
+		}
+		cfg = defaultCfg
+	}
+	spec, err := parseAgentSpec(cfg, ws, wsPath)
+	if err != nil {
+		return nil, err
+	}
+	if goalText != "" {
+		spec.BootPrompt = goalText
+	}
+	return spec, nil
 }
 
 // parseAgentSpec extracts the agent definition and Dotprompt frontmatter from
@@ -65,6 +104,15 @@ func parseAgentSpec(config *structpb.Struct, ws *v1alpha1.Workspace, wsPath stri
 	spec := &agentSpec{
 		Name:        defaultAgentName,
 		Frontmatter: make(map[string]any),
+	}
+
+	if v, ok := raw["prompt"]; ok {
+		s, ok := v.(string)
+		if !ok {
+			return nil, errors.New("spec.config.prompt: must be a string")
+		}
+		spec.BootPrompt = strings.TrimSpace(s)
+		delete(raw, "prompt")
 	}
 
 	if v, ok := raw["name"]; ok {
@@ -246,9 +294,16 @@ func resolveSkillPaths(cfg map[string]any, ws *v1alpha1.Workspace, wsPath string
 }
 
 func workspaceSkillsPath(ws *v1alpha1.Workspace, wsPath string) string {
-	sp := ws.GetSpec().GetSkills().GetPath()
-	if sp == "" {
+	skills := ws.GetSpec().GetSetup().GetSkills()
+	if skills == nil {
 		return ""
+	}
+	sp := skills.GetPath()
+	if sp == "" {
+		if len(skills.GetRegistries()) == 0 {
+			return ""
+		}
+		sp = ".ax/skills"
 	}
 	if filepath.IsAbs(sp) {
 		return sp

@@ -4,7 +4,12 @@ metadata:
   name: genkit-triage
   atespace: default
 spec:
-  image: "ghcr.io/ghchinoy/ax-images/genkit-runner@sha256:832d08990cecb0c86a017ada973c7d2dfc138366ce43c53f1a795d3c0e9fd73c"
+  profile:
+    image: "ghcr.io/ghchinoy/ax-images/genkit-runner:latest"
+    resources:
+      limits:
+        cpu: "2"
+        memory: "4Gi"
   debug: true
   config:
     name: triage_agent

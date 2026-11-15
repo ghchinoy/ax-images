@@ -72,7 +72,9 @@ func TestParseAgentSpec_Errors(t *testing.T) {
 func TestParseAgentSpec_DefaultsAndNormalization(t *testing.T) {
 	ws := &v1alpha1.Workspace{
 		Spec: &v1alpha1.WorkspaceSpec{
-			Skills: &v1alpha1.SkillsConfig{Path: ".agents/skills"},
+			Setup: &v1alpha1.WorkspaceSetup{
+				Skills: &v1alpha1.SkillsConfig{Path: ".agents/skills"},
+			},
 			Mcp: &v1alpha1.MCPConfig{
 				Servers: []*v1alpha1.MCPServer{
 					{Name: "docs", Endpoint: "https://example.com/mcp"},
@@ -146,8 +148,10 @@ func TestGenkitRunner_EndToEndWithSuspendResumeAndFilesystem(t *testing.T) {
 	ws := &v1alpha1.Workspace{
 		Metadata: &v1alpha1.ObjectMeta{Name: "repo-ws", Atespace: "default"},
 		Spec: &v1alpha1.WorkspaceSpec{
-			Files: []*v1alpha1.File{
-				{Path: "README.md", Content: "# Sample Repo\nAll tests pass.\n"},
+			Setup: &v1alpha1.WorkspaceSetup{
+				Files: []*v1alpha1.File{
+					{Path: "README.md", Content: "# Sample Repo\nAll tests pass.\n"},
+				},
 			},
 		},
 	}
@@ -205,29 +209,19 @@ func TestGenkitRunner_EndToEndWithSuspendResumeAndFilesystem(t *testing.T) {
 		},
 	}
 
-	// --- Boot 1: Run runner.Run with Genkit handler ---
+	// --- Boot 1: Run runGenkitRunner with Genkit handler ---
 	port1 := freePort(t)
 	metaPort1 := freePort(t)
 	ctx1, cancel1 := context.WithCancel(context.Background())
 	done1 := make(chan error, 1)
 
-	dyn1 := &dynamicHandler{}
 	go func() {
-		done1 <- runner.Run(ctx1, runner.Config{
+		done1 <- runGenkitRunner(ctx1, runner.Config{
 			Port:         port1,
 			MetadataPort: metaPort1,
 			Task:         task,
 			Workspace:    ws,
-			Handler:      dyn1,
-			OnWorkspaceReady: func(ctx context.Context, wp string) error {
-				h, _, err := buildAgentHandler(ctx, task, ws, wp, mockPlugin)
-				if err != nil {
-					return err
-				}
-				dyn1.Set(h)
-				return nil
-			},
-		})
+		}, mockPlugin)
 	}()
 
 	waitReady(t, port1)
@@ -272,23 +266,13 @@ func TestGenkitRunner_EndToEndWithSuspendResumeAndFilesystem(t *testing.T) {
 	defer cancel2()
 	done2 := make(chan error, 1)
 
-	dyn2 := &dynamicHandler{}
 	go func() {
-		done2 <- runner.Run(ctx2, runner.Config{
+		done2 <- runGenkitRunner(ctx2, runner.Config{
 			Port:         port2,
 			MetadataPort: metaPort2,
 			Task:         task,
 			Workspace:    ws,
-			Handler:      dyn2,
-			OnWorkspaceReady: func(ctx context.Context, wp string) error {
-				h, _, err := buildAgentHandler(ctx, task, ws, wp, mockPlugin)
-				if err != nil {
-					return err
-				}
-				dyn2.Set(h)
-				return nil
-			},
-		})
+		}, mockPlugin)
 	}()
 
 	waitReady(t, port2)

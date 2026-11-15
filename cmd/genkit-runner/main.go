@@ -13,21 +13,8 @@
 // limitations under the License.
 
 // Command genkit-runner is a task runner that serves a Genkit Go agent
-// configured from the Task's spec.config (Dotprompt frontmatter + instruction)
-// or a .prompt file in the workspace. It is installed as
-// /usr/local/bin/ax-task-runner in the image built from Dockerfile.genkit.
-//
-// When the task leaves spec.command empty and sets spec.config, the runner
-// serves the configured Genkit agent in-process on port 80 alongside /healthz,
-// /readyz, and the optional guest gRPC services:
-//   - A2A gRPC (lf.a2a.v1.A2AService and a2a.v1.A2AService) over h2c
-//   - A2A JSON-RPC at / and /.well-known/agent-card.json
-//   - Genkit native agent HTTP routes at /agents/<name>, /getSnapshot,
-//     /waitForSnapshot, and /abort
-//
-// Sessions are persisted in /workspace/.genkit/snapshots so multi-turn
-// conversations survive `ax suspend` and `ax resume`. A task that sets
-// spec.command runs that command unchanged, just like ax-task-runner.
+// configured from the Task's spec.config (Dotprompt frontmatter + instruction),
+// spec.goal.spec, or a .prompt file in the workspace.
 package main
 
 import (
@@ -71,37 +58,10 @@ func main() {
 		cfg.Task = &task
 	}
 
-	var cleanup func()
-	defer func() {
-		if cleanup != nil {
-			cleanup()
-		}
-	}()
-
-	// When spec.command is empty and spec.config is set, serve the Genkit
-	// agent in-process on the probe listener once the workspace is ready.
-	if spec := cfg.Task.GetSpec(); len(spec.GetCommand()) == 0 && spec.GetConfig() != nil {
-		// Validate spec.config up front before starting the runner.
-		if _, err := parseAgentSpec(spec.GetConfig(), cfg.Workspace, spec.WorkspacePath()); err != nil {
-			fatal(err)
-		}
-		dyn := &dynamicHandler{}
-		cfg.Handler = dyn
-		cfg.OnWorkspaceReady = func(ctx context.Context, wsPath string) error {
-			h, c, err := buildAgentHandler(ctx, cfg.Task, cfg.Workspace, wsPath)
-			if err != nil {
-				return err
-			}
-			cleanup = c
-			dyn.Set(h)
-			return nil
-		}
-	}
-
 	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
 	defer stop()
 
-	if err := runner.Run(ctx, cfg); err != nil {
+	if err := runGenkitRunner(ctx, cfg); err != nil {
 		fatal(err)
 	}
 }

@@ -25,17 +25,17 @@ func TestWithAgentCommand(t *testing.T) {
 	empty := &v1alpha1.Task{}
 	got := withAgentCommand(empty, "/usr/local/bin/ax-agent")
 	want := []string{"/usr/local/bin/ax-agent"}
-	if !slices.Equal(got.GetSpec().GetCommand(), want) {
-		t.Errorf("withAgentCommand(empty) = %v, want %v", got.GetSpec().GetCommand(), want)
+	if !slices.Equal(got.GetSpec().GetCommands(), want) {
+		t.Errorf("withAgentCommand(empty) = %v, want %v", got.GetSpec().GetCommands(), want)
 	}
 
 	explicit := &v1alpha1.Task{
 		Spec: &v1alpha1.TaskSpec{
-			Command: []string{"echo", "hi"},
+			Commands: []string{"echo", "hi"},
 		},
 	}
 	gotExplicit := withAgentCommand(explicit, "/usr/local/bin/ax-agent")
-	if !slices.Equal(gotExplicit.GetSpec().GetCommand(), []string{"echo", "hi"}) {
-		t.Errorf("withAgentCommand(explicit) = %v, want [echo hi]", gotExplicit.GetSpec().GetCommand())
+	if !slices.Equal(gotExplicit.GetSpec().GetCommands(), []string{"echo", "hi"}) {
+		t.Errorf("withAgentCommand(explicit) = %v, want [echo hi]", gotExplicit.GetSpec().GetCommands())
 	}
 }

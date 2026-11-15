@@ -2,9 +2,9 @@
 
 Multi-agent Gemini worker image (`python:3.12-slim` + `google-genai` + `pyyaml` + `jq`) for **[AX Experiments — Track 2a: Multi-Agent Swarm Recipes (`01`–`08`)](https://github.com/ghchinoy/ax-experiments/tree/main/swarm)** (see [`swarm/GUIDE.md`](https://github.com/ghchinoy/ax-experiments/blob/main/swarm/GUIDE.md)).
 
-Reads `Task.spec.config` (`role`, `model`, `prompt`) from the in-sandbox loopback metadata endpoint (`http://127.0.0.1:8099/metadata/v1alpha1/ax/task`) or environment variables (`AGENT_ROLE`, `AGENT_PROMPT`, `AX_AGENT_MODEL`). When `AGENT_PROMPT` is unset on boot, `/usr/local/bin/ax-agent` exits `0` so orchestrators can invoke `/usr/local/bin/agent.py` interactively over `ax ssh`.
+Reads `Task.spec.goal.spec` and `Task.spec.config` (`role`, `model`, `prompt`) from the in-sandbox loopback metadata endpoint (`http://127.0.0.1:8099/metadata/v1alpha1/ax/task`) or environment variables (`AGENT_ROLE`, `AGENT_PROMPT`, `AX_AGENT_MODEL`). When neither a boot goal/prompt nor `AGENT_PROMPT` is set on boot, `/usr/local/bin/ax-agent` exits `0` so orchestrators can invoke `/usr/local/bin/agent.py` interactively over `ax ssh`.
 
-## Task Manifest (`spec.config`)
+## Task Manifest (`spec.profile` + `spec.goal` + `spec.config`)
 
 ```yaml
 apiVersion: ax.io/v1alpha1
@@ -13,12 +13,18 @@ metadata:
   name: swarm-agent
   atespace: default
 spec:
-  image: "ghcr.io/ghchinoy/ax-images/swarm-agent@sha256:96f02f50344b58c0f793b3180bec7b6fdbc9055545ad58a42a1405e29f7486a8"
+  profile:
+    image: "ghcr.io/ghchinoy/ax-images/swarm-agent:latest"
+    resources:
+      limits:
+        cpu: "1"
+        memory: "2Gi"
   debug: true
+  goal:
+    spec: "Inspect /workspace and summarize key findings."
   config:
     role: "Security Auditor"
     model: "gemini-3.8-flash"
-    prompt: "Inspect /workspace and summarize key findings."
   env:
     - name: GEMINI_API_KEY
       value: "${GEMINI_API_KEY}"

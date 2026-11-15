@@ -96,9 +96,9 @@ func main() {
 		slog.Error("load task spec", "err", err)
 		os.Exit(1)
 	}
-	prompt, _ := cfg.String("prompt")
-	if strings.TrimSpace(prompt) == "" {
-		// Interactive ax ssh mode (no boot prompt configured): exit 0 so
+	prompt, _ := cfg.OptionalPrompt()
+	if prompt == "" {
+		// Interactive ax ssh mode (no boot goal/prompt configured): exit 0 so
 		// ax-task-runner stays Ready on :80 for interactive `ax ssh` sessions.
 		return
 	}
@@ -146,7 +146,7 @@ func parseOptions(cfg *agent.Config) (*options, error) {
 		errs []error
 		err  error
 	)
-	o.prompt, err = cfg.Required("prompt")
+	o.prompt, err = cfg.Prompt()
 	errs = append(errs, err)
 	o.agent, err = cfg.String("agent")
 	errs = append(errs, err)

@@ -13,15 +13,18 @@
 // limitations under the License.
 
 // Package agent holds what the agents in this repository share: the task's
-// spec.config, its workspace, the Workspace's MCP servers, and a small set of
-// local tools with optional DiffusionGemma (dgem) PreToolUse safety gating.
+// spec.goal and spec.config, its workspace, the Workspace's MCP servers, and a
+// small set of local tools with optional DiffusionGemma (dgem) PreToolUse
+// safety gating.
 package agent
 
 import (
+	"errors"
 	"fmt"
 	"log/slog"
 	"os"
 	"slices"
+	"strings"
 
 	"github.com/google/ax/pkg/apis/v1alpha1"
 	"github.com/google/ax/runner"
@@ -31,6 +34,10 @@ import (
 type Config struct {
 	// TaskName is the task's metadata.name.
 	TaskName string
+	// Goal is spec.goal.spec when set on the Task.
+	Goal string
+	// SessionID is spec.session_id when set on the Task.
+	SessionID string
 	// Values is spec.config.
 	Values map[string]any
 	// Workspace is the directory the agent works in.
@@ -70,10 +77,38 @@ func Load() (*Config, error) {
 	}
 	return &Config{
 		TaskName:  task.GetMetadata().GetName(),
+		Goal:      strings.TrimSpace(task.GetSpec().GetGoal().GetSpec()),
+		SessionID: strings.TrimSpace(task.GetSpec().GetSessionId()),
 		Values:    task.GetSpec().GetConfig().AsMap(),
 		Workspace: dir,
 		MCP:       mcpServers(ws.GetSpec().GetMcp()),
 	}, nil
+}
+
+// OptionalPrompt returns spec.goal.spec when set, falling back to
+// spec.config.prompt (or "" when neither is set).
+func (c *Config) OptionalPrompt() (string, error) {
+	if c.Goal != "" {
+		return c.Goal, nil
+	}
+	s, err := c.String("prompt")
+	if err != nil {
+		return "", err
+	}
+	return strings.TrimSpace(s), nil
+}
+
+// Prompt returns the required task prompt from spec.goal.spec or
+// spec.config.prompt.
+func (c *Config) Prompt() (string, error) {
+	s, err := c.OptionalPrompt()
+	if err != nil {
+		return "", err
+	}
+	if s == "" {
+		return "", errors.New("spec.goal.spec or spec.config.prompt: required")
+	}
+	return s, nil
 }
 
 func mcpServers(mcp *v1alpha1.MCPConfig) []MCPServer {

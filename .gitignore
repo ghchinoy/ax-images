@@ -1,3 +1,5 @@
 bin/
 *.bak
 .DS_Store
+.serena/
+AGENTS.md

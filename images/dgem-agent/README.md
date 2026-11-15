@@ -4,7 +4,7 @@ Task image for **[AX Experiments — Track 2c: System-1 Decision Routing & Guard
 
 Bundles `/usr/local/bin/dgem-router` and the `.json.tmpl` decision policy library in `/opt/dgem/templates/` (`specialist_router.json.tmpl`, `support_triage.json.tmpl`, `agent_step_drift.json.tmpl`, `tool_safety_gate.json.tmpl`), emitting structured `RouteDecision` JSON to stdout and `msg="genkit otel span"` trace lines to `/proc/1/fd/2`.
 
-## Task Manifest
+## Task Manifest (`spec.profile`)
 
 ```yaml
 apiVersion: ax.io/v1alpha1
@@ -13,7 +13,12 @@ metadata:
   name: dgem-router
   atespace: default
 spec:
-  image: "ghcr.io/ghchinoy/ax-images/dgem-agent@sha256:eda62cfd65299d0b625a674e79c550b956a90741205ece575b5ff52d81a3e021"
+  profile:
+    image: "ghcr.io/ghchinoy/ax-images/dgem-agent:latest"
+    resources:
+      limits:
+        cpu: "1"
+        memory: "2Gi"
   debug: true
   env:
     - name: DGEM_GATEWAY_URL

@@ -111,10 +111,16 @@ metadata:
   name: agy-dgem-gated
   atespace: default
 spec:
-  image: "ghcr.io/ghchinoy/ax-images/agy-agent:latest"
+  profile:
+    image: "ghcr.io/ghchinoy/ax-images/agy-agent:latest"
+    resources:
+      limits:
+        cpu: "2"
+        memory: "4Gi"
   debug: true
+  goal:
+    spec: "Inspect /workspace, run tests, and fix any failing assertions."
   config:
-    prompt: "Inspect /workspace, run tests, and fix any failing assertions."
     safetyGate: true
   env:
     - name: GEMINI_API_KEY

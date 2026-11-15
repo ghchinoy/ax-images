@@ -14,7 +14,7 @@ metadata:
   atespace: default
 spec:
   profile:
-    image: "ghcr.io/ghchinoy/ax-images/genkit-runner:latest"
+    image: "ghcr.io/ghchinoy/ax-images/genkit-runner@sha256:f5d7420468b7f1dec8304d7efa1dbe0ca2bb86a1e552181f823630412e01ee06"
     resources:
       limits:
         cpu: "2"

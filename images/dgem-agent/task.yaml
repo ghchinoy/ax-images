@@ -5,7 +5,7 @@ metadata:
   atespace: default
 spec:
   profile:
-    image: "ghcr.io/ghchinoy/ax-images/dgem-agent:latest"
+    image: "ghcr.io/ghchinoy/ax-images/dgem-agent@sha256:191df51f421c45093f2e8f07d00a2237293be12ff464a1aca0d0b4a43258ccb3"
     resources:
       limits:
         cpu: "1"

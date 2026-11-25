@@ -19,10 +19,12 @@
 package agent
 
 import (
+	"encoding/json"
 	"errors"
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
 	"slices"
 	"strings"
 
@@ -34,7 +36,7 @@ import (
 type Config struct {
 	// TaskName is the task's metadata.name.
 	TaskName string
-	// Goal is spec.goal.spec when set on the Task.
+	// Goal is spec.goal.text when set on the Task.
 	Goal string
 	// SessionID is spec.session_id when set on the Task.
 	SessionID string
@@ -42,6 +44,8 @@ type Config struct {
 	Values map[string]any
 	// Workspace is the directory the agent works in.
 	Workspace string
+	// OutputFile is AX_OUTPUT_FILE when set by the runner launcher contract.
+	OutputFile string
 	// MCP lists the Workspace's MCP servers.
 	MCP []MCPServer
 }
@@ -56,9 +60,14 @@ type MCPServer struct {
 	Args    []string
 }
 
-// Load reads the Task from AX_TASK_YAML and the Workspace from
-// AX_WORKSPACE_YAML.
+// Load reads task configuration from the AX launcher contract files
+// (AX_GOAL_FILE, AX_CONFIG_FILE, AX_MCP_CONFIG_FILE, AX_SESSION_FILE,
+// AX_OUTPUT_FILE — google/ax#621/#734) when present, falling back to
+// AX_TASK_YAML and AX_WORKSPACE_YAML.
 func Load() (*Config, error) {
+	if hasLauncherEnv() {
+		return loadFromLauncherFiles()
+	}
 	var task v1alpha1.Task
 	if err := runner.LoadSpec("", "AX_TASK_YAML", &task); err != nil {
 		return nil, err
@@ -67,7 +76,10 @@ func Load() (*Config, error) {
 	if err := runner.LoadSpec("", "AX_WORKSPACE_YAML", &ws); err != nil {
 		return nil, err
 	}
-	dir := task.GetSpec().GetWorkspace().GetPath()
+	dir := strings.TrimSpace(os.Getenv("AX_WORKSPACE"))
+	if dir == "" {
+		dir = task.GetSpec().GetWorkspace().GetPath()
+	}
 	if dir == "" {
 		wd, err := os.Getwd()
 		if err != nil {
@@ -76,16 +88,126 @@ func Load() (*Config, error) {
 		dir = wd
 	}
 	return &Config{
-		TaskName:  task.GetMetadata().GetName(),
-		Goal:      strings.TrimSpace(task.GetSpec().GetGoal().GetSpec()),
-		SessionID: strings.TrimSpace(task.GetSpec().GetSessionId()),
-		Values:    task.GetSpec().GetConfig().AsMap(),
-		Workspace: dir,
-		MCP:       mcpServers(ws.GetSpec().GetMcp()),
+		TaskName:   task.GetMetadata().GetName(),
+		Goal:       strings.TrimSpace(task.GetSpec().GetGoal().GetText()),
+		SessionID:  strings.TrimSpace(task.GetSpec().GetSessionId()),
+		Values:     task.GetSpec().GetConfig().AsMap(),
+		Workspace:  dir,
+		OutputFile: strings.TrimSpace(os.Getenv(runner.OutputFileEnv)),
+		MCP:        mcpServers(ws.GetSpec().GetMcp()),
 	}, nil
 }
 
-// OptionalPrompt returns spec.goal.spec when set, falling back to
+func hasLauncherEnv() bool {
+	return os.Getenv(runner.GoalFileEnv) != "" ||
+		os.Getenv(runner.ConfigFileEnv) != "" ||
+		os.Getenv(runner.MCPConfigFileEnv) != "" ||
+		os.Getenv(runner.SessionFileEnv) != ""
+}
+
+func loadFromLauncherFiles() (*Config, error) {
+	goal, err := readOptionalFile(os.Getenv(runner.GoalFileEnv))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", runner.GoalFileEnv, err)
+	}
+	sessionID, err := readOptionalFile(os.Getenv(runner.SessionFileEnv))
+	if err != nil {
+		return nil, fmt.Errorf("%s: %w", runner.SessionFileEnv, err)
+	}
+	values := map[string]any{}
+	if cfgText, err := readOptionalFile(os.Getenv(runner.ConfigFileEnv)); err != nil {
+		return nil, fmt.Errorf("%s: %w", runner.ConfigFileEnv, err)
+	} else if cfgText != "" {
+		if err := json.Unmarshal([]byte(cfgText), &values); err != nil {
+			return nil, fmt.Errorf("parsing %s: %w", runner.ConfigFileEnv, err)
+		}
+	}
+	var servers []MCPServer
+	if mcpText, err := readOptionalFile(os.Getenv(runner.MCPConfigFileEnv)); err != nil {
+		return nil, fmt.Errorf("%s: %w", runner.MCPConfigFileEnv, err)
+	} else if mcpText != "" {
+		servers, err = parseMCPConfigJSON([]byte(mcpText))
+		if err != nil {
+			return nil, fmt.Errorf("parsing %s: %w", runner.MCPConfigFileEnv, err)
+		}
+	}
+	dir := strings.TrimSpace(os.Getenv("AX_WORKSPACE"))
+	if dir == "" {
+		wd, err := os.Getwd()
+		if err != nil {
+			return nil, err
+		}
+		dir = wd
+	}
+	return &Config{
+		Goal:       strings.TrimSpace(goal),
+		SessionID:  strings.TrimSpace(sessionID),
+		Values:     values,
+		Workspace:  dir,
+		OutputFile: strings.TrimSpace(os.Getenv(runner.OutputFileEnv)),
+		MCP:        servers,
+	}, nil
+}
+
+func readOptionalFile(path string) (string, error) {
+	path = strings.TrimSpace(path)
+	if path == "" {
+		return "", nil
+	}
+	b, err := os.ReadFile(path)
+	if err != nil {
+		if errors.Is(err, os.ErrNotExist) {
+			return "", nil
+		}
+		return "", err
+	}
+	return strings.TrimSpace(string(b)), nil
+}
+
+func parseMCPConfigJSON(data []byte) ([]MCPServer, error) {
+	var raw struct {
+		MCPServers map[string]struct {
+			URL     string   `json:"url"`
+			Command string   `json:"command"`
+			Args    []string `json:"args"`
+		} `json:"mcpServers"`
+	}
+	if err := json.Unmarshal(data, &raw); err != nil {
+		return nil, err
+	}
+	names := make([]string, 0, len(raw.MCPServers))
+	for k := range raw.MCPServers {
+		names = append(names, k)
+	}
+	slices.Sort(names)
+	var out []MCPServer
+	for _, name := range names {
+		s := raw.MCPServers[name]
+		if s.URL == "" && s.Command == "" {
+			continue
+		}
+		out = append(out, MCPServer{
+			Name:    name,
+			URL:     s.URL,
+			Command: s.Command,
+			Args:    s.Args,
+		})
+	}
+	return out, nil
+}
+
+// WriteOutput writes the agent's final response to AX_OUTPUT_FILE when set.
+func (c *Config) WriteOutput(text string) error {
+	if c == nil || c.OutputFile == "" || strings.TrimSpace(text) == "" {
+		return nil
+	}
+	if err := os.MkdirAll(filepath.Dir(c.OutputFile), 0o755); err != nil {
+		return err
+	}
+	return os.WriteFile(c.OutputFile, []byte(strings.TrimSpace(text)+"\n"), 0o644)
+}
+
+// OptionalPrompt returns spec.goal.text when set, falling back to
 // spec.config.prompt (or "" when neither is set).
 func (c *Config) OptionalPrompt() (string, error) {
 	if c.Goal != "" {
@@ -98,7 +220,7 @@ func (c *Config) OptionalPrompt() (string, error) {
 	return strings.TrimSpace(s), nil
 }
 
-// Prompt returns the required task prompt from spec.goal.spec or
+// Prompt returns the required task prompt from spec.goal.text or
 // spec.config.prompt.
 func (c *Config) Prompt() (string, error) {
 	s, err := c.OptionalPrompt()
@@ -106,7 +228,7 @@ func (c *Config) Prompt() (string, error) {
 		return "", err
 	}
 	if s == "" {
-		return "", errors.New("spec.goal.spec or spec.config.prompt: required")
+		return "", errors.New("spec.goal.text or spec.config.prompt: required")
 	}
 	return s, nil
 }

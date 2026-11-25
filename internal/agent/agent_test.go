@@ -98,7 +98,7 @@ func TestLoad_GoalPrecedence(t *testing.T) {
 	t.Setenv("AX_TASK_YAML", `
 metadata: {name: goal-task}
 spec:
-  goal: {spec: "Goal takes precedence."}
+  goal: {text: "Goal takes precedence."}
   config: {prompt: "Fallback prompt."}
 `)
 	t.Setenv("AX_WORKSPACE_YAML", "")
@@ -108,6 +108,65 @@ spec:
 	}
 	if p, err := cfg.Prompt(); p != "Goal takes precedence." || err != nil {
 		t.Errorf("Prompt() = %q, %v, want Goal takes precedence.", p, err)
+	}
+}
+
+func TestLoad_LauncherFiles(t *testing.T) {
+	dir := t.TempDir()
+	wsDir := filepath.Join(dir, "ws")
+	if err := os.MkdirAll(wsDir, 0o755); err != nil {
+		t.Fatal(err)
+	}
+	goalFile := filepath.Join(dir, "goal")
+	cfgFile := filepath.Join(dir, "config.json")
+	mcpFile := filepath.Join(dir, "mcp.json")
+	sessFile := filepath.Join(dir, "session")
+	outFile := filepath.Join(wsDir, ".ax", "output")
+	if err := os.WriteFile(goalFile, []byte("Fix math_utils.py\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(cfgFile, []byte(`{"model":"gemini-3.8-flash","maxTurns":9}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(mcpFile, []byte(`{"mcpServers":{"docs":{"url":"https://docs/mcp"},"git":{"command":"git-mcp","args":["--repo","."]}}}`), 0o644); err != nil {
+		t.Fatal(err)
+	}
+	if err := os.WriteFile(sessFile, []byte("sess-42\n"), 0o644); err != nil {
+		t.Fatal(err)
+	}
+
+	t.Setenv("AX_GOAL_FILE", goalFile)
+	t.Setenv("AX_CONFIG_FILE", cfgFile)
+	t.Setenv("AX_MCP_CONFIG_FILE", mcpFile)
+	t.Setenv("AX_SESSION_FILE", sessFile)
+	t.Setenv("AX_OUTPUT_FILE", outFile)
+	t.Setenv("AX_WORKSPACE", wsDir)
+	t.Setenv("AX_TASK_YAML", "")
+	t.Setenv("AX_WORKSPACE_YAML", "")
+
+	cfg, err := Load()
+	if err != nil {
+		t.Fatal(err)
+	}
+	if cfg.Goal != "Fix math_utils.py" || cfg.SessionID != "sess-42" || cfg.Workspace != wsDir {
+		t.Fatalf("unexpected launcher config: %+v", cfg)
+	}
+	if n, err := cfg.Int("maxTurns", 50); n != 9 || err != nil {
+		t.Errorf("Int(maxTurns) = %d, %v", n, err)
+	}
+	wantMCP := []MCPServer{
+		{Name: "docs", URL: "https://docs/mcp"},
+		{Name: "git", Command: "git-mcp", Args: []string{"--repo", "."}},
+	}
+	if !reflect.DeepEqual(cfg.MCP, wantMCP) {
+		t.Errorf("MCP = %+v, want %+v", cfg.MCP, wantMCP)
+	}
+	if err := cfg.WriteOutput("all tests pass"); err != nil {
+		t.Fatalf("WriteOutput: %v", err)
+	}
+	gotOut, err := os.ReadFile(outFile)
+	if err != nil || strings.TrimSpace(string(gotOut)) != "all tests pass" {
+		t.Errorf("output file = %q, err=%v", string(gotOut), err)
 	}
 }
 

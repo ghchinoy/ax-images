@@ -12,7 +12,7 @@ spec:
         memory: "2Gi"
   debug: true
   goal:
-    spec: "Inspect /workspace and summarize key findings."
+    text: "Inspect /workspace and summarize key findings."
   config:
     role: "Security Auditor"
     model: "gemini-3.8-flash"

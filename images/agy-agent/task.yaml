@@ -12,7 +12,7 @@ spec:
         memory: "4Gi"
   debug: true
   goal:
-    spec: "Inspect /workspace, run tests, and fix any issues."
+    text: "Inspect /workspace, run tests, and fix any issues."
   config:
     maxTurns: 25
     # Set safetyGate: true (or provide DGEM_GATEWAY_URL / DGEM_GATE_STATIC=1)

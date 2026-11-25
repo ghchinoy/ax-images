@@ -29,7 +29,10 @@ LABEL org.opencontainers.image.source="https://github.com/ghchinoy/ax-images"
 
 ARG TARGETARCH
 COPY bin/linux_${TARGETARCH}/genkit-runner /usr/local/bin/ax-agent
-RUN ln -f /usr/local/bin/ax-agent /usr/local/bin/ax-task-runner
+RUN ln -f /usr/local/bin/ax-agent /usr/local/bin/ax-runner && \
+    ln -f /usr/local/bin/ax-agent /usr/local/bin/ax-task-runner && \
+    ln -f /usr/local/bin/ax-agent /usr/local/bin/ax-launcher && \
+    ln -f /usr/local/bin/ax-agent /usr/local/bin/ax-harness
 
 WORKDIR /workspace
-ENTRYPOINT ["/usr/local/bin/ax-task-runner"]
+ENTRYPOINT ["/usr/local/bin/ax-runner"]

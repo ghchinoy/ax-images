@@ -36,7 +36,7 @@ const (
 	// defaultGoogleProvider is prepended to a bare Gemini model ID (such as
 	// "gemini-3.8-flash") when no provider prefix is present.
 	defaultGoogleProvider = "googleai"
-	// defaultGoalModel is used when a Task sets spec.goal.spec without spec.config.model.
+	// defaultGoalModel is used when a Task sets spec.goal.text without spec.config.model.
 	defaultGoalModel = "googleai/gemini-3.8-flash"
 )
 
@@ -57,9 +57,9 @@ type agentSpec struct {
 }
 
 // parseTaskAgentSpec extracts the agent definition from a Task and Workspace,
-// supporting both Task.spec.config (Dotprompt frontmatter) and Task.spec.goal.spec.
+// supporting both Task.spec.config (Dotprompt frontmatter) and Task.spec.goal.text.
 func parseTaskAgentSpec(task *v1alpha1.Task, ws *v1alpha1.Workspace, wsPath string) (*agentSpec, error) {
-	goalText := strings.TrimSpace(task.GetSpec().GetGoal().GetSpec())
+	goalText := strings.TrimSpace(task.GetSpec().GetGoal().GetText())
 	cfg := task.GetSpec().GetConfig()
 	if len(cfg.GetFields()) == 0 && goalText != "" {
 		defaultCfg, err := structpb.NewStruct(map[string]any{

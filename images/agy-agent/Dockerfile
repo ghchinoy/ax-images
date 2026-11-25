@@ -34,7 +34,10 @@ RUN chmod +x /opt/dgem/agy-safety-gate/dgem_gate.py /opt/dgem/agy-safety-gate/sd
 
 ARG TARGETARCH
 COPY bin/linux_${TARGETARCH}/agy-agent /usr/local/bin/ax-agent
-RUN ln -f /usr/local/bin/ax-agent /usr/local/bin/ax-task-runner
+RUN ln -f /usr/local/bin/ax-agent /usr/local/bin/ax-runner && \
+    ln -f /usr/local/bin/ax-agent /usr/local/bin/ax-task-runner && \
+    ln -f /usr/local/bin/ax-agent /usr/local/bin/ax-launcher && \
+    ln -f /usr/local/bin/ax-agent /usr/local/bin/ax-harness
 
 WORKDIR /workspace
-ENTRYPOINT ["/usr/local/bin/ax-task-runner"]
+ENTRYPOINT ["/usr/local/bin/ax-runner"]

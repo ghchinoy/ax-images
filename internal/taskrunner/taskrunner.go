@@ -14,8 +14,8 @@
 
 // Package taskrunner is the task runner shared by every image in this
 // repository. Each image ships a single agent binary at /usr/local/bin/ax-agent
-// with /usr/local/bin/ax-task-runner hard-linked to it; the agent calls Main
-// when it was started under the runner's name.
+// with /usr/local/bin/ax-runner (and legacy ax-task-runner) hard-linked to it;
+// the agent calls Main when it was started under a runner name.
 package taskrunner
 
 import (
@@ -35,13 +35,17 @@ import (
 // defaultAgent is where every image installs its agent entrypoint.
 const defaultAgent = "/usr/local/bin/ax-agent"
 
-// Name is the binary name AX starts the runner under.
-const Name = "ax-task-runner"
+// Name is the binary name AX starts the runner under (google/ax#677).
+const Name = "ax-runner"
+
+// LegacyName is the pre-#677 runner binary name kept as a hard-link alias.
+const LegacyName = "ax-task-runner"
 
 // Invoked reports whether the process was started as the runner rather than
-// as the agent.
+// as the agent or launcher.
 func Invoked() bool {
-	return filepath.Base(os.Args[0]) == Name
+	base := filepath.Base(os.Args[0])
+	return base == Name || base == LegacyName
 }
 
 // Main runs the task runner and exits the process on failure.
@@ -74,7 +78,16 @@ func Main() {
 	if err := runner.LoadSpec(taskFile, "AX_TASK_YAML", &task); err != nil {
 		fatal(err)
 	} else if task.GetMetadata() != nil {
-		cfg.Task = withAgentCommand(&task, agent)
+		cfg.Task = &task
+	}
+
+	// Under google/ax#688, actors from shared Profile templates boot without
+	// AX_TASK_YAML and receive their Task via POST /runner/v1alpha1/task.
+	if cfg.Task == nil {
+		cfg.AwaitPush = true
+	}
+	cfg.PrepareTask = func(t *v1alpha1.Task, _ *v1alpha1.Workspace) (*v1alpha1.Task, error) {
+		return withAgentCommand(t, agent), nil
 	}
 
 	exportSpec("AX_TASK_YAML", taskFile)

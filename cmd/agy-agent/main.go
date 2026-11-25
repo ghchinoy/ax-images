@@ -127,7 +127,7 @@ func run(ctx context.Context, cfg *agent.Config, cc *genai.ClientConfig) error {
 	if err != nil {
 		return err
 	}
-	return loop(ctx, client, cfg.Workspace, opts)
+	return loop(ctx, client, cfg, opts)
 }
 
 type options struct {
@@ -213,11 +213,13 @@ func buildTools(servers []agent.MCPServer, builtin []string) ([]interactions.Too
 	return out, nil
 }
 
-func loop(ctx context.Context, client *genai.Client, workspace string, o *options) error {
+func loop(ctx context.Context, client *genai.Client, cfg *agent.Config, o *options) error {
+	workspace := cfg.Workspace
 	input := interactions.NewInteractionsInput(o.prompt)
 	agentConfig := interactions.NewCreateAgentInteractionAgentConfig(o.agentConfig)
 	env := sandbox()
 	var previousID *string
+	var lastOutput string
 	handled := map[string]bool{}
 	for turn := 1; ; turn++ {
 		if turn > o.maxTurns {
@@ -262,6 +264,7 @@ func loop(ctx context.Context, client *genai.Client, workspace string, o *option
 				for _, c := range step.ModelOutputStep.Content {
 					if c.TextContent != nil && c.TextContent.Text != "" {
 						fmt.Println(c.TextContent.Text)
+						lastOutput = c.TextContent.Text
 					}
 				}
 			case step.MCPServerToolCallStep != nil:
@@ -299,6 +302,9 @@ func loop(ctx context.Context, client *genai.Client, workspace string, o *option
 				return fmt.Errorf("turn %d: interaction requires action but has no function calls to run", turn)
 			}
 			slog.Info("agent finished", "turns", turn, "status", in.Status)
+			if err := cfg.WriteOutput(lastOutput); err != nil {
+				slog.Warn("failed to write AX_OUTPUT_FILE", "path", cfg.OutputFile, "err", err)
+			}
 			return nil
 		}
 		input = interactions.NewInteractionsInput(results)

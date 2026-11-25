@@ -6,7 +6,7 @@
 
 Multi-arch (`linux/amd64` + `linux/arm64`), digest-pinned container images for running **[Google Genkit Go](https://genkit.dev/docs/go/)**, **[DiffusionGemma (`dgem`)](https://github.com/GoogleCloudPlatform/dgem)** System-1 decision routers, **[Google Antigravity (`agy`)](https://github.com/rakyll/ax-images/tree/main/images/antigravity)** coding agents (in both baseline and 4-stage `dgem` safety-gated modes), and multi-agent Gemini swarms on **[AX (Agent Executor)](https://github.com/google/ax)**, **[AX Experiments](https://github.com/ghchinoy/ax-experiments)**, and **[AX Central](https://github.com/ghchinoy/ax-central)**.
 
-Built on the single-binary runner pattern from **[`rakyll/ax-images`](https://github.com/rakyll/ax-images)**, every image compiles its agent and `ax-task-runner` into `/usr/local/bin/ax-agent` with `/usr/local/bin/ax-task-runner` **hard-linked** (`ln -f`) to it ([`rakyll/ax-images#2`](https://github.com/rakyll/ax-images/pull/2)), ensuring local microVM harnesses (`ate-local`) that bind-mount over `/usr/local/bin/ax-task-runner` never clobber the bundled agent binary.
+Built on the single-binary runner pattern from **[`rakyll/ax-images`](https://github.com/rakyll/ax-images)**, every image compiles its agent and `ax-runner` into `/usr/local/bin/ax-agent` with `/usr/local/bin/ax-runner`, `/usr/local/bin/ax-task-runner`, `/usr/local/bin/ax-launcher`, and `/usr/local/bin/ax-harness` **hard-linked** (`ln -f`) to it ([`rakyll/ax-images#2`](https://github.com/rakyll/ax-images/pull/2), `google/ax#677`/`#734`), supporting both native push-runner mode (`google/ax#688`) and `--runner-volume-image` launcher mode (`google/ax#620`/`#621`).
 
 ## Table of Contents
 

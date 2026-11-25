@@ -31,8 +31,11 @@ COPY images/dgem-agent/templates /opt/dgem/templates
 
 ARG TARGETARCH
 COPY bin/linux_${TARGETARCH}/dgem-agent /usr/local/bin/ax-agent
-RUN ln -f /usr/local/bin/ax-agent /usr/local/bin/ax-task-runner && \
+RUN ln -f /usr/local/bin/ax-agent /usr/local/bin/ax-runner && \
+    ln -f /usr/local/bin/ax-agent /usr/local/bin/ax-task-runner && \
+    ln -f /usr/local/bin/ax-agent /usr/local/bin/ax-launcher && \
+    ln -f /usr/local/bin/ax-agent /usr/local/bin/ax-harness && \
     ln -f /usr/local/bin/ax-agent /usr/local/bin/dgem-router
 
 WORKDIR /workspace
-ENTRYPOINT ["/usr/local/bin/ax-task-runner"]
+ENTRYPOINT ["/usr/local/bin/ax-runner"]

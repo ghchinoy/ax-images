@@ -358,6 +358,98 @@ func TestGenkitRunner_EndToEndWithSuspendResumeAndFilesystem(t *testing.T) {
 	}
 }
 
+func TestGenkitRunner_AwaitPush(t *testing.T) {
+	wsPath := t.TempDir()
+	port := freePort(t)
+	metaPort := freePort(t)
+	mockPlugin := &mockModelPlugin{
+		provider: "mock",
+		model:    "echo",
+		fn: func(ctx context.Context, req *ai.ModelRequest, cb ai.ModelStreamCallback) (*ai.ModelResponse, error) {
+			return &ai.ModelResponse{
+				Request: req,
+				Message: ai.NewModelTextMessage("pushed-ok"),
+			}, nil
+		},
+	}
+
+	ctx, cancel := context.WithCancel(context.Background())
+	defer cancel()
+	done := make(chan error, 1)
+	go func() {
+		done <- runGenkitRunner(ctx, runner.Config{
+			Port:         port,
+			MetadataPort: metaPort,
+			AwaitPush:    true,
+			RunDir:       t.TempDir(),
+		}, mockPlugin)
+	}()
+
+	// Plain /readyz must return 200 immediately while awaiting push.
+	waitReady(t, port)
+
+	// Push a Task YAML over POST /runner/v1alpha1/task (#688).
+	taskYAML := fmt.Sprintf(`apiVersion: ax.io/v1alpha1
+kind: Task
+metadata:
+  name: pushed-triage
+  atespace: default
+  uid: uid-pushed-1
+spec:
+  profile:
+    image: ghcr.io/ghchinoy/ax-images/genkit-runner:latest
+  workspace:
+    path: %s
+  config:
+    name: triage_agent
+    model: mock/echo
+    instruction: Triage pushed tasks.
+`, wsPath)
+	pushResp, err := http.Post(fmt.Sprintf("http://127.0.0.1:%d%s", port, v1alpha1.RunnerTaskPath), "application/yaml", strings.NewReader(taskYAML))
+	if err != nil {
+		t.Fatalf("POST %s: %v", v1alpha1.RunnerTaskPath, err)
+	}
+	pushBody, _ := io.ReadAll(pushResp.Body)
+	pushResp.Body.Close()
+	if pushResp.StatusCode != http.StatusAccepted && pushResp.StatusCode != http.StatusOK {
+		t.Fatalf("POST %s status=%d body=%s", v1alpha1.RunnerTaskPath, pushResp.StatusCode, pushBody)
+	}
+
+	// Wait for /readyz?check=workspace to report 200 after Genkit initializes.
+	deadline := time.Now().Add(10 * time.Second)
+	ready := false
+	for time.Now().Before(deadline) {
+		r, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/readyz?check=workspace", port))
+		if err == nil {
+			r.Body.Close()
+			if r.StatusCode == http.StatusOK {
+				ready = true
+				break
+			}
+		}
+		time.Sleep(25 * time.Millisecond)
+	}
+	if !ready {
+		t.Fatalf("/readyz?check=workspace never became ready")
+	}
+
+	// Verify A2A agent card is now served on the same port.
+	cardResp, err := http.Get(fmt.Sprintf("http://127.0.0.1:%d/.well-known/agent-card.json", port))
+	if err != nil {
+		t.Fatalf("GET agent-card.json: %v", err)
+	}
+	cardBody, _ := io.ReadAll(cardResp.Body)
+	cardResp.Body.Close()
+	if cardResp.StatusCode != http.StatusOK || !strings.Contains(string(cardBody), `"name":"triage_agent"`) {
+		t.Fatalf("unexpected agent card: status=%d body=%s", cardResp.StatusCode, cardBody)
+	}
+
+	cancel()
+	if err := <-done; err != nil {
+		t.Fatalf("AwaitPush runner exited with error: %v", err)
+	}
+}
+
 func waitReady(t *testing.T, port int) {
 	t.Helper()
 	deadline := time.Now().Add(5 * time.Second)

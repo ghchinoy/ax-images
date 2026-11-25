@@ -51,7 +51,7 @@ type Tool struct {
 	Name        string
 	Description string
 	Parameters  map[string]any
-	run        func(ctx context.Context, workspace string, args map[string]any) string
+	run         func(ctx context.Context, workspace string, args map[string]any) string
 }
 
 // Tools are the tools every agent gives its model.

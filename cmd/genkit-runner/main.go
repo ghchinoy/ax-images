@@ -14,7 +14,10 @@
 
 // Command genkit-runner is a task runner that serves a Genkit Go agent
 // configured from the Task's spec.config (Dotprompt frontmatter + instruction),
-// spec.goal.spec, or a .prompt file in the workspace.
+// spec.goal.text, or a .prompt file in the workspace. When invoked as
+// ax-launcher or ax-harness (google/ax#621/#734 --runner-volume-image mode),
+// it executes a single Genkit turn from AX_GOAL_FILE/AX_CONFIG_FILE and writes
+// the reply to AX_OUTPUT_FILE.
 package main
 
 import (
@@ -23,6 +26,7 @@ import (
 	"log/slog"
 	"os"
 	"os/signal"
+	"path/filepath"
 	"syscall"
 
 	"github.com/google/ax/pkg/apis/v1alpha1"
@@ -30,6 +34,20 @@ import (
 )
 
 func main() {
+	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
+	slog.SetDefault(logger)
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	base := filepath.Base(os.Args[0])
+	if base == "ax-launcher" || base == "ax-harness" {
+		if err := runGenkitLauncher(ctx); err != nil {
+			fatal(err)
+		}
+		return
+	}
+
 	var (
 		cfg      runner.Config
 		taskFile string
@@ -40,9 +58,6 @@ func main() {
 	flag.StringVar(&taskFile, "task-file", "", "Read the Task YAML from this file instead of AX_TASK_YAML")
 	flag.StringVar(&wsFile, "workspace-file", "", "Read the Workspace YAML from this file instead of AX_WORKSPACE_YAML")
 	flag.Parse()
-
-	logger := slog.New(slog.NewTextHandler(os.Stdout, &slog.HandlerOptions{Level: slog.LevelInfo}))
-	slog.SetDefault(logger)
 
 	var ws v1alpha1.Workspace
 	if err := runner.LoadSpec(wsFile, "AX_WORKSPACE_YAML", &ws); err != nil {
@@ -58,8 +73,11 @@ func main() {
 		cfg.Task = &task
 	}
 
-	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
-	defer stop()
+	// Under google/ax#688, actors from shared Profile templates boot without
+	// AX_TASK_YAML and receive their Task via POST /runner/v1alpha1/task.
+	if cfg.Task == nil {
+		cfg.AwaitPush = true
+	}
 
 	if err := runGenkitRunner(ctx, cfg); err != nil {
 		fatal(err)

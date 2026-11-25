@@ -30,6 +30,7 @@ import (
 	"path/filepath"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
 
 	"github.com/a2aproject/a2a-go/v2/a2a"
@@ -48,12 +49,15 @@ import (
 	"github.com/firebase/genkit/go/plugins/googlegenai"
 	"github.com/firebase/genkit/go/plugins/mcp"
 	"github.com/firebase/genkit/go/plugins/middleware"
+	"github.com/ghchinoy/ax-images/internal/agent"
 	"github.com/google/ax/pkg/apis/v1alpha1"
 	"github.com/google/ax/runner"
 	"go.opentelemetry.io/otel"
 	sdktrace "go.opentelemetry.io/otel/sdk/trace"
 	"golang.org/x/net/http2"
 	"google.golang.org/grpc"
+	"google.golang.org/protobuf/proto"
+	"google.golang.org/protobuf/types/known/structpb"
 )
 
 // dynamicHandler delegates HTTP requests to the inner handler set once
@@ -86,21 +90,31 @@ func (d *dynamicHandler) ServeHTTP(w http.ResponseWriter, r *http.Request) {
 	h.ServeHTTP(w, r)
 }
 
+func taskHasAgentConfig(task *v1alpha1.Task) bool {
+	spec := task.GetSpec()
+	return spec != nil && len(spec.GetCommands()) == 0 &&
+		(len(spec.GetConfig().GetFields()) > 0 || strings.TrimSpace(spec.GetGoal().GetText()) != "")
+}
+
+type pushedAssignment struct {
+	task *v1alpha1.Task
+	ws   *v1alpha1.Workspace
+}
+
 // runGenkitRunner executes the AX task runner alongside the in-process Genkit
 // HTTP + A2A gRPC/JSON-RPC server on cfg.Port when spec.commands is empty and
-// spec.config or spec.goal.spec is set. When spec.commands is populated, it
+// spec.config or spec.goal.text is set (supporting both static Config.Task and
+// #688 Config.AwaitPush). When spec.commands is populated in static mode, it
 // delegates directly to runner.Run.
 func runGenkitRunner(ctx context.Context, cfg runner.Config, extraPlugins ...api.Plugin) error {
-	spec := cfg.Task.GetSpec()
-	hasAgentConfig := spec != nil && len(spec.GetCommands()) == 0 &&
-		(len(spec.GetConfig().GetFields()) > 0 || strings.TrimSpace(spec.GetGoal().GetSpec()) != "")
-	if !hasAgentConfig {
-		return runner.Run(ctx, cfg)
-	}
-
-	wsPath := spec.WorkspacePath()
-	if _, err := parseTaskAgentSpec(cfg.Task, cfg.Workspace, wsPath); err != nil {
-		return err
+	if !cfg.AwaitPush {
+		if !taskHasAgentConfig(cfg.Task) {
+			return runner.Run(ctx, cfg)
+		}
+		wsPath := cfg.Task.GetSpec().WorkspacePath()
+		if _, err := parseTaskAgentSpec(cfg.Task, cfg.Workspace, wsPath); err != nil {
+			return err
+		}
 	}
 
 	publicPort := cfg.Port
@@ -112,8 +126,45 @@ func runGenkitRunner(ctx context.Context, cfg runner.Config, extraPlugins ...api
 		return fmt.Errorf("allocating internal runner port: %w", err)
 	}
 
+	var agentTask atomic.Bool
+	pushedCh := make(chan pushedAssignment, 1)
+
 	innerCfg := cfg
 	innerCfg.Port = internalPort
+	if !cfg.AwaitPush {
+		agentTask.Store(true)
+		// Strip spec.goal on the inner runner task so runner.Run completes
+		// SetupWorkspace without also spawning /usr/local/bin/ax-launcher while
+		// genkit-runner serves the agent in-process.
+		if innerCfg.Task != nil && innerCfg.Task.GetSpec().GetGoal() != nil {
+			cloned := proto.Clone(innerCfg.Task).(*v1alpha1.Task)
+			cloned.Spec.Goal = nil
+			innerCfg.Task = cloned
+		}
+	} else {
+		innerCfg.PrepareTask = func(t *v1alpha1.Task, w *v1alpha1.Workspace) (*v1alpha1.Task, error) {
+			if !taskHasAgentConfig(t) {
+				return t, nil
+			}
+			wsPath := t.GetSpec().WorkspacePath()
+			if _, err := parseTaskAgentSpec(t, w, wsPath); err != nil {
+				return nil, err
+			}
+			agentTask.Store(true)
+			orig := proto.Clone(t).(*v1alpha1.Task)
+			select {
+			case pushedCh <- pushedAssignment{task: orig, ws: w}:
+			default:
+			}
+			// Clear spec.goal on the copy handed to runner.Run so the inner
+			// runner doesn't double-launch /usr/local/bin/ax-launcher.
+			stripped := proto.Clone(t).(*v1alpha1.Task)
+			if stripped.Spec != nil {
+				stripped.Spec.Goal = nil
+			}
+			return stripped, nil
+		}
+	}
 
 	runnerURL, _ := url.Parse(fmt.Sprintf("http://127.0.0.1:%d", internalPort))
 	http1Proxy := httputil.NewSingleHostReverseProxy(runnerURL)
@@ -135,11 +186,19 @@ func runGenkitRunner(ctx context.Context, cfg runner.Config, extraPlugins ...api
 			h2cProxy.ServeHTTP(w, r)
 			return
 		}
+		if strings.HasPrefix(r.URL.Path, "/runner/v1alpha1/") {
+			http1Proxy.ServeHTTP(w, r)
+			return
+		}
 		switch r.URL.Path {
 		case "/healthz":
 			http1Proxy.ServeHTTP(w, r)
 		case "/readyz":
-			if !dyn.Ready() {
+			// In AwaitPush mode, plain /readyz must return 200 immediately for
+			// Substrate's WakeupProbe; only gate /readyz?check=workspace (or
+			// static-mode /readyz) on Genkit agent initialization.
+			checkWS := r.URL.Query().Get("check") == "workspace"
+			if (!cfg.AwaitPush || (checkWS && agentTask.Load())) && !dyn.Ready() {
 				w.Header().Set("Content-Type", "application/json")
 				w.WriteHeader(http.StatusServiceUnavailable)
 				_, _ = w.Write([]byte(`{"status":"initializing_agent"}`))
@@ -172,11 +231,17 @@ func runGenkitRunner(ctx context.Context, cfg runner.Config, extraPlugins ...api
 	runCtx, cancelRun := context.WithCancel(ctx)
 	defer cancelRun()
 
-	var cleanup func()
+	var (
+		cleanupMu sync.Mutex
+		cleanup   func()
+	)
 	defer func() {
 		_ = pubSrv.Shutdown(context.Background())
-		if cleanup != nil {
-			cleanup()
+		cleanupMu.Lock()
+		c := cleanup
+		cleanupMu.Unlock()
+		if c != nil {
+			c()
 		}
 	}()
 
@@ -185,11 +250,27 @@ func runGenkitRunner(ctx context.Context, cfg runner.Config, extraPlugins ...api
 		runnerErrCh <- runner.Run(runCtx, innerCfg)
 	}()
 
-	// Wait for runner.Run to finish SetupWorkspace (signaled by internal /readyz 200),
-	// then initialize the Genkit agent handler before flipping public /readyz to 200.
+	// Wait for runner.Run to receive the task (in AwaitPush mode) and finish
+	// SetupWorkspace, then initialize the Genkit agent handler before flipping
+	// /readyz?check=workspace to 200.
 	initErrCh := make(chan error, 1)
 	go func() {
+		activeTask := cfg.Task
+		activeWS := cfg.Workspace
+		if cfg.AwaitPush {
+			select {
+			case <-runCtx.Done():
+				initErrCh <- nil
+				return
+			case pushed := <-pushedCh:
+				activeTask = pushed.task
+				activeWS = pushed.ws
+			}
+		}
 		readyURL := fmt.Sprintf("http://127.0.0.1:%d/readyz", internalPort)
+		if cfg.AwaitPush {
+			readyURL += "?check=workspace"
+		}
 		client := &http.Client{Timeout: time.Second}
 		for {
 			if runCtx.Err() != nil {
@@ -205,12 +286,15 @@ func runGenkitRunner(ctx context.Context, cfg runner.Config, extraPlugins ...api
 			}
 			time.Sleep(25 * time.Millisecond)
 		}
-		h, c, err := buildAgentHandler(runCtx, cfg.Task, cfg.Workspace, wsPath, extraPlugins...)
+		wsPath := activeTask.GetSpec().WorkspacePath()
+		h, c, err := buildAgentHandler(runCtx, activeTask, activeWS, wsPath, extraPlugins...)
 		if err != nil {
 			initErrCh <- err
 			return
 		}
+		cleanupMu.Lock()
 		cleanup = c
+		cleanupMu.Unlock()
 		dyn.Set(h)
 		initErrCh <- nil
 	}()
@@ -226,6 +310,124 @@ func runGenkitRunner(ctx context.Context, cfg runner.Config, extraPlugins ...api
 		}
 	}
 	return <-runnerErrCh
+}
+
+// runGenkitLauncher handles --runner-volume-image mode (google/ax#621/#734),
+// where /opt/ax/ax-runner owns port 80 and invokes /usr/local/bin/ax-launcher
+// with AX_GOAL_FILE, AX_CONFIG_FILE, AX_MCP_CONFIG_FILE, AX_SESSION_FILE, and
+// AX_OUTPUT_FILE.
+func runGenkitLauncher(ctx context.Context) error {
+	acfg, err := agent.Load()
+	if err != nil {
+		return fmt.Errorf("loading launcher config: %w", err)
+	}
+	prompt, err := acfg.OptionalPrompt()
+	if err != nil {
+		return err
+	}
+	if prompt == "" {
+		return nil
+	}
+	cfgStruct, err := structpb.NewStruct(acfg.Values)
+	if err != nil {
+		return fmt.Errorf("encoding launcher config: %w", err)
+	}
+	var mcpServers []*v1alpha1.MCPServer
+	for _, m := range acfg.MCP {
+		mcpServers = append(mcpServers, &v1alpha1.MCPServer{
+			Name:     m.Name,
+			Endpoint: m.URL,
+			Command:  m.Command,
+			Args:     m.Args,
+		})
+	}
+	task := &v1alpha1.Task{
+		Spec: &v1alpha1.TaskSpec{
+			Goal:      &v1alpha1.Goal{Text: acfg.Goal},
+			SessionId: acfg.SessionID,
+			Config:    cfgStruct,
+			Workspace: &v1alpha1.WorkspaceRef{Path: acfg.Workspace},
+		},
+	}
+	ws := &v1alpha1.Workspace{
+		Spec: &v1alpha1.WorkspaceSpec{
+			Mcp: &v1alpha1.MCPConfig{Servers: mcpServers},
+		},
+	}
+	spec, err := parseTaskAgentSpec(task, ws, acfg.Workspace)
+	if err != nil {
+		return err
+	}
+	promptDir := filepath.Join(acfg.Workspace, ".genkit", "prompts")
+	if err := os.MkdirAll(promptDir, 0o755); err != nil {
+		return fmt.Errorf("creating prompt directory: %w", err)
+	}
+	plugins := defaultPlugins(spec.Model)
+	var mcpClients []*mcp.GenkitMCPClient
+	for _, srv := range spec.MCPServers {
+		client, err := mcp.NewGenkitMCPClient(srv.Config)
+		if err != nil {
+			slog.Warn("failed to connect to workspace MCP server", "server", srv.Name, "error", err)
+			continue
+		}
+		mcpClients = append(mcpClients, client)
+	}
+	defer func() {
+		for _, c := range mcpClients {
+			_ = c.Disconnect()
+		}
+	}()
+	g := genkit.Init(ctx,
+		genkit.WithExperimental(),
+		genkit.WithPlugins(plugins...),
+	)
+	var mcpToolNames []string
+	for _, c := range mcpClients {
+		tools, err := c.GetActiveTools(ctx, g)
+		if err != nil {
+			slog.Warn("failed to fetch tools from MCP server", "error", err)
+			continue
+		}
+		for _, t := range tools {
+			if genkit.LookupTool(g, t.Name()) == nil {
+				if reg, ok := t.(api.Registerable); ok {
+					genkit.RegisterAction(g, reg)
+				}
+			}
+			mcpToolNames = append(mcpToolNames, t.Name())
+		}
+	}
+	if err := spec.writePromptFile(promptDir, acfg.Workspace, mcpToolNames); err != nil {
+		return err
+	}
+	genkit.LoadPromptDir(g, promptDir, "")
+	storeDir := filepath.Join(acfg.Workspace, ".genkit", "snapshots")
+	store, err := localstore.NewFileSessionStore[any](storeDir)
+	if err != nil {
+		return fmt.Errorf("creating session store: %w", err)
+	}
+	var opts []aix.PromptAgentOption[any]
+	opts = append(opts, aix.WithSessionStore(store))
+	if spec.Description != "" {
+		opts = append(opts, aix.WithDescription[any](spec.Description))
+	}
+	ag := genkitx.DefinePromptAgent(g, spec.Name, opts...)
+	sessionID := firstNonEmpty(acfg.SessionID, "default")
+	out, err := ag.RunText(ctx, prompt, aix.WithSessionID[any](sessionID))
+	if err != nil {
+		return fmt.Errorf("genkit launcher turn: %w", err)
+	}
+	var reply string
+	if out.Message != nil {
+		reply = out.Message.Text()
+	}
+	if reply != "" {
+		fmt.Println(reply)
+	}
+	if err := acfg.WriteOutput(reply); err != nil {
+		slog.Warn("failed to write AX_OUTPUT_FILE", "path", acfg.OutputFile, "err", err)
+	}
+	return nil
 }
 
 func pickFreeLoopbackPort() (int, error) {

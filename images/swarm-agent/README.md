@@ -14,7 +14,7 @@ metadata:
   atespace: default
 spec:
   profile:
-    image: "ghcr.io/ghchinoy/ax-images/swarm-agent@sha256:e8e2e27f95855314e08f3f06bf224895599bbdfed6d467116855d2ce2a7e64bc"
+    image: "ghcr.io/ghchinoy/ax-images/swarm-agent@sha256:f23d5fda508774936a323c6c15fb937957cbccf5865bc989bb325c7854b36ea5"
     resources:
       limits:
         cpu: "1"

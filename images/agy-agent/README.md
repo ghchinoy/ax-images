@@ -17,7 +17,7 @@ metadata:
   atespace: default
 spec:
   profile:
-    image: "ghcr.io/ghchinoy/ax-images/agy-agent@sha256:bd8792bf378a2ba2d8953934ed3a2b195d8b9c9063a4f58a31f1b5ebea75e47f"
+    image: "ghcr.io/ghchinoy/ax-images/agy-agent@sha256:2d1ae9d22688ab26926ce808c9231e8c07b019c15b0f530d5616a50956dc63a1"
     resources:
       limits:
         cpu: "2"
@@ -43,7 +43,7 @@ metadata:
   atespace: default
 spec:
   profile:
-    image: "ghcr.io/ghchinoy/ax-images/agy-agent@sha256:bd8792bf378a2ba2d8953934ed3a2b195d8b9c9063a4f58a31f1b5ebea75e47f"
+    image: "ghcr.io/ghchinoy/ax-images/agy-agent@sha256:2d1ae9d22688ab26926ce808c9231e8c07b019c15b0f530d5616a50956dc63a1"
     resources:
       limits:
         cpu: "2"
